@@ -1,6 +1,8 @@
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
+from mathFunc import getDetec
+from numba import jit,float32, int64
 
 class layer:
     def __init__(self,vp,vs,rou,z=[0,0]):
@@ -11,7 +13,6 @@ class layer:
         self.lamb, self.miu = self.getLame()
         self.zeta = self.getZeta()
         self.xi   = self.getXi()
-
     def getLame(self):
         miu  = self.vs**2*self.rou
         lamb = self.vp**2*self.rou-2*miu
@@ -128,10 +129,12 @@ class surface:
         return np.mat(M)
     def setTTRRD(self, surface1 = 0):
         if self.isBottom :
-            self.RRdu = np.mat(self.Rdu*0)
-            return 0
-        self.TTd  = (np.mat(np.eye(self.Rud.shape[0])) - np.mat(self.Rud)*np.mat(surface1.RRdu))**(-1)*np.mat(self.Td)
-        self.RRdu = np.mat(self.Rdu) + np.mat(self.Tu)*np.mat(surface1.RRdu)*self.TTd
+            RRdu1 = np.mat(self.Rdu*0)
+            #return 0
+        else:
+            RRdu1 =  surface1.RRdu
+        self.TTd  = (np.mat(np.eye(self.Rud.shape[0])) - np.mat(self.Rud)*np.mat(RRdu1))**(-1)*np.mat(self.Td)
+        self.RRdu = np.mat(self.Rdu) + np.mat(self.Tu)*np.mat(RRdu1)*self.TTd
     def setTTRRU(self, surface0 = 0):
         if self.isTop :
             self.RRud = self.Rud
@@ -159,7 +162,7 @@ class model:
             surfaceL[i] = surface(layerL[i], layerL[i+1], mode, isTop, isBottom)
         self.layerL = layerL
         self.surfaceL = surfaceL
-        self.layerN=layerN
+        self.layerN = layerN
     def set(self, k,omega):
         for s in self.surfaceL:
             s.setTR(k,omega)
@@ -185,15 +188,56 @@ class model:
         return np.linalg.det(M)
     def plot(self, omega, dv=0.01):
         #k = np.arange(0,1,dk)
+        v, k ,det = self.calList(omega, dv)
+        plt.plot(v,np.real(det),'-k')
+        plt.plot(v,np.imag(det),'-.k')
+        plt.plot(v,np.abs(det),'r')
+        plt.show()
+    def calList(self,omega,dv=0.01):
         vs0 = self.layerL[1].vs
         vp0 = self.layerL[1].vp
-        v = np.arange(vs0-0.5+1e-9,vp0+1,dv)
+        v = np.arange(vs0-0.499,vs0+2,dv)
         k = omega/v
         det = k.astype(np.complex)*0
         for i in range(k.shape[0]):
             det[i] = self.get(k[i], omega)
-        plt.plot(v,np.real(det),'-k')
-        plt.plot(v,np.imag(det),'-.k')
+        return v, k, det
+    def calV(self, omega,order = 0, dv=0.002, DV = 0.008):
+        v, k ,det = self.calList(omega, dv)
+        iL, detL = getDetec(-np.abs(det), minValue=-0.1, minDelta=int(DV /dv))
+        i0 = iL[order]
+        v0 = v[i0]
+        det0 = -detL[0]
+        '''
+        ddv = 0.001  
+        for i in range(5):
+            step = 1e-3*(5-i)
+            v1 = v0 + ddv
+            det1 = np.abs(self.get(omega/v1, omega))
+            k = (det1-det0)/ddv
+            v0 = v0 - k*step
+            print(k)
+            det0 = np.abs(self.get(omega/v1, omega))
+        '''
+        return v0,det0
+    def calDispersion(self, order=0):
+        T = np.arange(1,100,5).astype(np.float)
+        f = 1/T
+        omega = 2*np.pi*f
+        v = omega*0
+        for i in range(omega.size):
+            
+            v[i]=np.abs(self.calV(omega[i],order=order))[0]
+            print(omega[i],v[i])
+        return f,v
+    def test(self):
+        self.plot(2*np.pi)
+    def testDispersion(self):
+        f,v = self.calDispersion()
+        plt.plot(f,v)
         plt.show()
+
+
+
 
 
