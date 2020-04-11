@@ -3,7 +3,7 @@ import scipy
 import matplotlib.pyplot as plt
 from mathFunc import getDetec
 from numba import jit,float32, int64
-
+#cps
 class layer:
     def __init__(self,vp,vs,rou,z=[0,0]):
         self.z    = np.array(z)
@@ -76,6 +76,8 @@ class surface:
         self.mode     = mode
         self.isTop    = isTop
         self.isBottom = isBottom
+        self.E = [None,None]
+        self.A = [None,None]
     def submat(self,M):
         shape = M.shape
         lenth = shape[0]/2
@@ -90,6 +92,8 @@ class surface:
         E1     = self.submat(E1)
         A0     = self.submat(A0)
         A1     = self.submat(A1)
+        self.E = [E0, E1]
+        self.A = [A0, A1]
         EE0    = self.toMat([[E1[0][0],   -E0[0][1]],\
             [                 E1[1][0],   -E0[1][1]]])
         EE1    = self.toMat([[E0[0][0],   -E1[0][1]],\
@@ -143,9 +147,11 @@ class surface:
         self.RRud = np.mat(self.Rud) + np.mat(self.Td)*np.mat(surface0.RRud)*self.TTu
 
 class model:
-    def __init__(self,modelFile, mode='PSV'):
+    def __init__(self,modelFile, mode='PSV',getMode = 'norm'):
         #z0 z1 rou vp vs Qkappa Qmu
         #0  1  2   3  4  5      6
+        self.modelFile = modelFile
+        self.getMode = getMode
         data = np.loadtxt(modelFile)
         layerN=data.shape[0]
         layerL=[None for i in range(layerN)]
@@ -184,7 +190,11 @@ class model:
         self.set(k, omega)
         RRud0 = self.surfaceL[0].RRud
         RRdu1 = self.surfaceL[1].RRdu
-        M = np.mat(np.eye(RRud0.shape[0])) - RRud0*RRdu1
+        if self.getMode == 'norm':
+            M = np.mat(np.eye(RRud0.shape[0])) - RRud0*RRdu1
+        elif self.getMode == 'new':
+            #-E1[1][0]**(-1)*E1[1][1]*(A1[1][1])
+            M = self.surfaceL[0].E[1][1][0]+self.surfaceL[0].E[1][1][1]*self.surfaceL[0].A[1][1][1]*RRdu1
         return np.linalg.det(M)
     def plot(self, omega, dv=0.01):
         #k = np.arange(0,1,dk)
@@ -236,7 +246,31 @@ class model:
         f,v = self.calDispersion()
         plt.plot(f,v)
         plt.show()
-
+    def compare(self,dv=0.01):
+        self.getMode = 'norm'
+        v, k ,det = self.calList(6.28, dv)
+        plt.plot(v,np.abs(det)/np.abs(det).max(),'k')
+        self.getMode = 'new'
+        v, k ,det = self.calList(6.28, dv)
+        plt.plot(v,np.abs(det)/np.abs(det).max(),'r')
+        plt.show()
+    def covert2Fk(self, fkMode=0):
+        if fkMode == 0:
+            filename = self.modelFile+'fk0'
+        else:
+            filename = self.modelFile+'fk1'
+        with open(filename,'w+') as f:
+            for i in range(1,self.layerN):
+                layer = self.layerL[i]
+                thickness = layer.z[1] - layer.z[0]
+                vp = layer.vp
+                vs = layer.vs
+                rou = layer.rou
+                if fkMode == 0:
+                    vp/=vs
+                f.write('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rou))
+                if i!= self.layerN-1:
+                    f.write('\n')
 
 
 
