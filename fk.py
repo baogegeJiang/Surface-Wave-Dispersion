@@ -122,9 +122,9 @@ class FK:
             sacs = [obspy.read(sacName)[0] for sacName in sacNames]
             sacsL.append(sacs)
         return sacsL
-    def test(self,distance=[50],modelFile='hk',fok='/k',dt=1,depth=15,expnt=10):
+    def test(self,distance=[50],modelFile='hk',fok='/k',dt=1,depth=15,expnt=10,dura=10):
         self.calGreen(distance=distance,modelFile=modelFile,fok=fok,dt=dt,depth=depth,expnt=10)
-        self.syn(dura=10)
+        self.syn(dura=dura)
         sacsL = self.readAll()
         for sacs  in sacsL:
             for sac in sacs:

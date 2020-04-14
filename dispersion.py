@@ -1,23 +1,34 @@
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
-from mathFunc import getDetec,xcorrSimple
+from mathFunc import getDetec,xcorrSimple,xcorrComplex
 from numba import jit,float32, int64
-#cps
+from scipy import fftpack
+'''
+the specific meaning of them you can find in Chen Xiaofei's paper
+(A systematic and efficient method of computing normal modes for multilayered half-space)
+'''
 class layer:
-    def __init__(self,vp,vs,rou,z=[0,0],Qp=1200,Qs=600):
+    '''
+    class for layered media;
+    the p velocity(vp), s velocity(vs), density(rho), [top depth, bottom depth](z) is needed; 
+    p and s 's Q(Qp, Qs) is optional(default is 1200,600)
+    After specifying the above parameters, the lame parameter(lambda, miu), zeta and xi would
+     be calculate as class's attributes. 
+    '''
+    def __init__(self,vp,vs,rho,z=[0,0],Qp=1200,Qs=600):
         self.z    = np.array(z)
         self.vp   = np.array(vp)
         self.vs   = np.array(vs)
-        self.rou  = np.array(rou)
+        self.rho  = np.array(rho)
         self.Qp = Qp
         self.Qs = Qs
         self.lamb, self.miu = self.getLame()
         self.zeta = self.getZeta()
         self.xi   = self.getXi()
     def getLame(self):
-        miu  = self.vs**2*self.rou
-        lamb = self.vp**2*self.rou-2*miu
+        miu  = self.vs**2*self.rho
+        lamb = self.vp**2*self.rho-2*miu
         return lamb, miu
     def getZeta(self):
         return 1/(self.lamb + 2*self.miu)
@@ -62,7 +73,13 @@ class layer:
         return E, A
 
 class surface:
-    def __init__(self, layer0=0, layer1=1,mode='PSV',isTop = False, isBottom = False):
+    '''
+    class for surface of layer
+    the layers above and beneath(layer0, layer1) is needed
+    Specify the bool parameters isTop and isBottom, if the surface is the first or last one； the default is false
+    the default waveform mode(mode) is 'PSV', you can set it to 'SH'
+    '''
+    def __init__(self, layer0, layer1,mode='PSV',isTop = False, isBottom = False):
         self.layer0 = layer0
         self.layer1 = layer1
         #if not isTop:
@@ -149,22 +166,38 @@ class surface:
         self.RRud = np.mat(self.Rud) + np.mat(self.Td)*np.mat(surface0.RRud)*self.TTu
 
 class model:
+    '''
+    class for layered media model
+    modeFile is the media parameter model File, there are tow mods
+    if layerMode == 'norm':
+       '0    18  2.80  6.0 3.5'
+       layer's top depth, layer's bottom depth, density, p velocity, svelocity
+    if layerMode =='prem':
+        '0.00       5.800     3.350       2.800    1400.0     600.0'
+        depth,  p velocity, s velocity, density,    Qp,        Qs
+    mode is for PSV and SH
+    getMode is the way to get phase velocity:
+        norm is enough to get phase velocity
+        new is enough to get fundamental phase velocity for SH
+    '''
     def __init__(self,modelFile, mode='PSV',getMode = 'norm',layerMode ='norm',layerN=10000):
-        #z0 z1 rou vp vs Qkappa Qmu
+        #z0 z1 rho vp vs Qkappa Qmu
         #0  1  2   3  4  5      6
         self.modelFile = modelFile
         self.getMode = getMode
         data = np.loadtxt(modelFile)
-        layerN=min(data.shape[0],layerN)
+        layerN=min(data.shape[0],layerN+1)
         layerL=[None for i in range(layerN)]
         if layerMode == 'norm':
-            for i in range(layerN):
+            layerL[0] = layer(1.7, 1, 0.0001,[-100,0])
+            for i in range(1,layerN):
                 layerL[i] = layer(data[i,3], data[i,4], data[i,2], data[i,:2])
         elif layerMode == 'prem':
-            for i in range(layerN):
+            layerL[0] = layer(1.7, 1, 0.0001,[-100,0])
+            for i in range(1,layerN):
                 #100.0        7.95      4.45      3.38      200.0      80.0
                 #0            1         2         3         4          5
-                #vp,vs,rou,z=[0,0],Qp=1200,Qs=600
+                #vp,vs,rho,z=[0,0],Qp=1200,Qs=600
                 layerL[i] = layer(data[i,1], data[i,2], data[i,3], np.array([data[i,0],data[(i+1)%layerN,0]]),data[i,4],data[i,5])
         surfaceL = [None for i in range(layerN-1)]
         for i in range(layerN-1):
@@ -274,16 +307,19 @@ class model:
                 thickness = layer.z[1] - layer.z[0]
                 vp = layer.vp.copy()
                 vs = layer.vs.copy()
-                rou = layer.rou
+                rho = layer.rho
                 if fkMode == 0:
                     vp/=vs
-                print('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rou))
-                f.write('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rou))
+                print('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rho))
+                f.write('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rho))
                 if i!= self.layerN-1:
                     f.write('\n')
 
 class disp:
-    def __init__(self,nperseg=300,noverlap=298,fs=1,halfDt=150,xcorr = xcorrSimple):
+    '''
+    traditional method to calculate the dispersion curve
+    '''
+    def __init__(self,nperseg=300,noverlap=298,fs=1,halfDt=150,xcorr = xcorrComplex):
         self.nperseg=nperseg
         self.noverlap=noverlap
         self.fs = fs
@@ -294,6 +330,7 @@ class disp:
         maxI = np.argmax(data)
         i0 = max(maxI - self.halfN,0)
         i1 = min(maxI + self.halfN,data.shape[0])
+        print(i0,i1)
         return data[i0:i1],i0,i1
     def xcorr(self,data0, data1,isCut=True):
         if isCut:
@@ -304,6 +341,7 @@ class disp:
     def stft(self,data):
         F,t,zxx = scipy.signal.stft(data,fs=self.fs,nperseg=self.nperseg,\
             noverlap=self.noverlap)
+        zxx /= np.abs(zxx).max(axis=1,keepdims=True)
         return F,t,zxx
     def show(self,F,t,zxx,data):
         plt.subplot(2,1,1);plt.pcolor(t,F,np.abs(zxx));plt.subplot(2,1,2);plt.plot(data);plt.show()
@@ -311,5 +349,3 @@ class disp:
         xx = self.xcorr(data0,data1,isCut=isCut)
         F,t,zxx = self.stft(xx)
         self.show(F,t,zxx,xx)
-
-

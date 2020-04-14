@@ -1,6 +1,7 @@
 import numpy as np
 from numba import jit,float32, int64
 import scipy.signal  as signal
+from scipy import fftpack
 nptype=np.float32
 rad2deg=1/np.pi*180
 @jit
@@ -22,11 +23,24 @@ def xcorr(a,b):
 
 @jit
 def xcorrSimple(a,b):
+    
     la=a.size
     lb=b.size
     c=np.zeros(la-lb+1)
     for i in range(la-lb+1):
         tc= (a[i:(i+lb)]*b[0:(0+lb)]).sum()
+        c[i]=tc
+    return c
+
+@jit
+def xcorrComplex(a,b):
+    a = fftpack.hilbert(a)
+    b = fftpack.hilbert(b)
+    la=a.size
+    lb=b.size
+    c=np.zeros(la-lb+1).astype(a.dtype)
+    for i in range(la-lb+1):
+        tc= (a[i:(i+lb)]*b[0:(0+lb)].conj()).sum()
         c[i]=tc
     return c
 
