@@ -113,6 +113,7 @@ def cmax(a,tmin,winL,laout,aM):
     while i<laout+winL:
         aM[i-winL]+=a[i-winL]
         i+=1
+    return 1
 
 def cmax_bak(a,tmin,winL,laout,aM):
     i=0 

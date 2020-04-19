@@ -3,7 +3,9 @@ import scipy
 import matplotlib.pyplot as plt
 from mathFunc import getDetec,xcorrSimple,xcorrComplex
 from numba import jit,float32, int64
-from scipy import fftpack
+from scipy import fftpack,interpolate
+from fk import FK
+import os 
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -99,7 +101,7 @@ class surface:
         self.A = [None,None]
     def submat(self,M):
         shape = M.shape
-        lenth = shape[0]/2
+        lenth = int(shape[0]/2)
         newM  = M.reshape([2, lenth, 2, lenth])
         newM  = newM.transpose([0,2,1,3])
         return newM
@@ -178,7 +180,7 @@ class model:
     mode is for PSV and SH
     getMode is the way to get phase velocity:
         norm is enough to get phase velocity
-        new is enough to get fundamental phase velocity for SH
+        new is to get fundamental phase velocity for PSV
     '''
     def __init__(self,modelFile, mode='PSV',getMode = 'norm',layerMode ='norm',layerN=10000):
         #z0 z1 rho vp vs Qkappa Qmu
@@ -191,14 +193,14 @@ class model:
         if layerMode == 'norm':
             layerL[0] = layer(1.7, 1, 0.0001,[-100,0])
             for i in range(1,layerN):
-                layerL[i] = layer(data[i,3], data[i,4], data[i,2], data[i,:2])
+                layerL[i] = layer(data[i-1,3], data[i-1,4], data[i-1,2], data[i-1,:2])
         elif layerMode == 'prem':
             layerL[0] = layer(1.7, 1, 0.0001,[-100,0])
             for i in range(1,layerN):
                 #100.0        7.95      4.45      3.38      200.0      80.0
                 #0            1         2         3         4          5
                 #vp,vs,rho,z=[0,0],Qp=1200,Qs=600
-                layerL[i] = layer(data[i,1], data[i,2], data[i,3], np.array([data[i,0],data[(i+1)%layerN,0]]),data[i,4],data[i,5])
+                layerL[i] = layer(data[i-1,1], data[i-1,2], data[i-1,3], np.array([data[i-1,0],data[(i+1-1)%layerN,0]]),data[i-1,4],data[i-1,5])
         surfaceL = [None for i in range(layerN-1)]
         for i in range(layerN-1):
             isTop = False
@@ -248,18 +250,21 @@ class model:
     def calList(self,omega,dv=0.01):
         vs0 = self.layerL[1].vs
         vp0 = self.layerL[1].vp
-        v = np.arange(vs0-0.499,vs0+2,dv)
+        v = np.arange(vs0-0.499,vs0+5,dv)
         k = omega/v
         det = k.astype(np.complex)*0
         for i in range(k.shape[0]):
             det[i] = self.get(k[i], omega)
         return v, k, det
-    def calV(self, omega,order = 0, dv=0.002, DV = 0.008):
-        v, k ,det = self.calList(omega, dv)
-        iL, detL = getDetec(-np.abs(det), minValue=-0.1, minDelta=int(DV /dv))
-        i0 = iL[order]
-        v0 = v[i0]
-        det0 = -detL[0]
+    def calV(self, omega,order = 0, dv=0.002, DV = 0.008,calMode='norm',threshold=0.1):
+        if calMode =='norm':
+            v, k ,det = self.calList(omega, dv)
+            iL, detL = getDetec(-np.abs(det), minValue=-0.1, minDelta=int(DV /dv))
+            i0 = iL[order]
+            v0 = v[i0]
+            det0 = -detL[0]
+        elif calMode == 'fast':
+             v0,det0=self.calVFast(omega,order=order,dv=dv,DV=DV,threshold=threshold)
         '''
         ddv = 0.001  
         for i in range(5):
@@ -272,14 +277,25 @@ class model:
             det0 = np.abs(self.get(omega/v1, omega))
         '''
         return v0,det0
-    def calDispersion(self, order=0):
-        T = np.arange(1,100,5).astype(np.float)
+    def calVFast(self,omega,order=0,dv=0.01,DV=0.008,threshold=0.1):
+        v = self.layerL[1].vs+1e-8
+        v0 = v
+        det0=10
+        for i in range(10000):
+            v1 = i*dv+v
+            det1 =np.abs(self.get(omega/v1, omega))
+            if  det1<threshold and det1 < det0:
+                v0 = v1
+                det0 = det1
+            if det0 <threshold and det1>det0:
+                return v0, det0
+
+    def calDispersion(self, order=0,calMode='norm',threshold=0.1,T= np.arange(1,100,5).astype(np.float)):
         f = 1/T
         omega = 2*np.pi*f
         v = omega*0
         for i in range(omega.size):
-            
-            v[i]=np.abs(self.calV(omega[i],order=order))[0]
+            v[i]=np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold))[0]
             print(omega[i],v[i])
         return f,v
     def test(self):
@@ -315,9 +331,12 @@ class model:
                 if i!= self.layerN-1:
                     f.write('\n')
 
+
+
 class disp:
     '''
     traditional method to calculate the dispersion curve
+    then should add some sac to handle time difference
     '''
     def __init__(self,nperseg=300,noverlap=298,fs=1,halfDt=150,xcorr = xcorrComplex):
         self.nperseg=nperseg
@@ -337,15 +356,122 @@ class disp:
             data1,i0,i1 = self.cut(data1)
         #print(data0.shape,data1.shape1)
         xx = self.xcorrFunc(data0,data1)
-        return xx
+        return xx,i0,i1
     def stft(self,data):
         F,t,zxx = scipy.signal.stft(data,fs=self.fs,nperseg=self.nperseg,\
             noverlap=self.noverlap)
         zxx /= np.abs(zxx).max(axis=1,keepdims=True)
         return F,t,zxx
-    def show(self,F,t,zxx,data):
-        plt.subplot(2,1,1);plt.pcolor(t,F,np.abs(zxx));plt.subplot(2,1,2);plt.plot(data);plt.show()
+    def show(self,F,t,zxx,data,timeL,isShow=True):
+        plt.subplot(2,1,1);plt.pcolor(t,F,np.abs(zxx));plt.subplot(2,1,2);plt.plot(timeL,data);
+        if isShow:
+            plt.show()
+    def sacXcorr(self,sac0,sac1,isCut=True):
+        fs = sac0.stats['sampling_rate']
+        self.fs=fs
+        self.halfN = np.int(self.halfDt*self.fs)
+        data0 = sac0.data
+        time0 = sac0.stats.starttime.timestamp
+        dis0  = sac0.stats['sac']['dist']
+        data1 = sac1.data
+        time1 = sac1.stats.starttime.timestamp
+        dis1  = sac1.stats['sac']['dist']
+        xx,i0,i1 = self.xcorr(data0,data1,isCut)
+        time1New = time1+i0/fs
+        dTime =  time0 -time1New
+        timeL = np.arange(xx.size)/fs+dTime
+        dDis = dis0 - dis1
+        return corr(xx,timeL,dDis,fs)
     def test(self,data0,data1,isCut=True):
         xx = self.xcorr(data0,data1,isCut=isCut)
         F,t,zxx = self.stft(xx)
         self.show(F,t,zxx,xx)
+    def testSac(self,sac0,sac1,isCut=True,fTheor=[],vTheor=[]):
+        xx,timeL,dDis,fs = self.sacXcorr(sac0,sac1,isCut=True).output()
+        F,t,zxx = self.stft(xx)
+        print(t)
+        t = t+timeL[0]+0*self.nperseg/self.fs
+        self.show(F,t,zxx,xx,timeL,isShow=False)
+        if len(fTheor)>0:
+            timeTheorL =dDis/vTheor
+            plt.subplot(2,1,1);plt.plot(timeTheorL,fTheor)
+        return xx, zxx, F, t
+
+class fv:
+    def __init__(self,input,mode='num'):
+        if mode == 'num':
+            self.f = input[0]
+            self.v = input[1]
+        if mode == 'file':
+            fvM = np.loadtxt(input)
+            self.f = fvM[:,0]
+            self.v = fvM[:,1]
+        self.interp = self.genInterp()
+    def genInterp(self):
+        return interpolate.interp1d(self.f,self.v,kind='linear')
+    def __call__(self,f):
+        return self.interp(f)
+    def save(self,filename):
+        np.savetxt(filename, np.concatenate([self.f.reshape([-1,1]),\
+            self.v.reshape([-1,1])],axis=1))
+
+
+class corr:
+    """docstring for """
+    def __init__(self,xx=0,timeL=0,dDis=0,fs=0,az=np.array([0,0]),dura=0,M=np.array([0,0,0,0,0,0,0])\
+        ,dis=np.array([0,0]),dep = 10):
+        self.xx    = xx 
+        self.timeL = timeL
+        self.dDis  = dDis
+        self.fs    = fs
+        self.az    = az
+        self.dura  = dura
+        self.M     = M
+        self.dis   = dis
+        self.dep   = dep
+    def output(self):
+        return self.xx,self.timeL,self.dDis,self.fs
+    def toDict(self):
+        return {'xx':self.xx, 'timeL':self.timeL, 'dDis':self.dDis, 'fs':self.fs,\
+        'az':self.az, 'dura':self.dura,'M':self.M,'dis':self.dis,'dep':self.dep}
+    def setFromFile(self,file):
+        mat        = scipy.io.load(file)
+        self.xx    = mat['xx'] 
+        self.timeL = mat['timeL']
+        self.dDis  = mat['dDis']
+        self.fs    = mat['fs']
+        self.az    = mat['az']
+        self.dura  = mat['dura']
+        self.M     = mat['M']
+        self.dis   = mat['dis']
+        self.dep   = mat['dep']
+    def save(self,fileName):
+        scipy.io.savemat(fileName,self.toDict())
+
+        
+def genModel(modelFile = 'prem',N=100,perD = 0.10,depthMul=2):
+    modelDir = 'models/'
+    if not os.path.exists(modelDir):
+        os.mkdir(modelDir)
+    #800.0       11.0       6.13      4.46      740.0     312.0
+    model0 = np.loadtxt(modelFile)
+    for i in range(N):
+        model = model0.copy()
+        depthLast = -10
+        for j in range(model.shape[0]):
+            depth0 = model[j,0]
+            depth = max(depthLast,depth0 + (depth0-depthLast)*perD*depthMul*(2*np.random.rand()-1))
+            depth0= depth
+            model[j,0]=depth
+            for k in range(1,6):
+                model[j,k]*=1+perD*(2*np.random.rand()-1)
+        np.savetxt('%s/%s%d'%(modelDir,modelFile,i),model)
+
+def genFvFile(modelFile,fvFile='',mode='PSV',getMode = 'norm',layerMode ='prem',layerN=20,calMode='fast',\
+    T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300])):
+    if len(fvFile) ==0:
+        fvFile='%s_fv'%modelFile
+    m = model(modelFile,mode=mode,getMode=getMode,layerMode=layerMode,layerN=layerN)
+    f,v=m.calDispersion(order=0,calMode=calMode,threshold=0.1,T=T)
+    f = fv([f,v],'num')
+    f.save(fvFile)

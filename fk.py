@@ -27,13 +27,13 @@ class FK:
             os.system('rm -r %s'%self.resDir)
         self.prepare()
 
-    def calGreen(self,distance=[1],modelFile='paperfk',fok='/k',srcType=[0,2],rdep=0,\
+    def calGreen(self,distance=[1],modelFile='paper',fok='/k',srcType=[0,2],rdep=0,\
         isDeg = False, dt=1, expnt=8, expsmth = 0,f=[0,0],p=[0,0],kmax=0,\
-        updn=0,depth=1, taper=-1, dk=-1,cmd=''):
+        updn=0,depth=1, taper=0.3, dk=0.3,cmd=''):
         if fok =='/f' or fok == '':
-            modelFile+='1'
+            modelFile+='fk1'
         else:
-            modelFile+='0'
+            modelFile+='fk0'
         if not os.path.exists(modelFile):
             modelFile = modelFile[:-1]
         copyModelCmd = 'cp %s %s'%(modelFile,self.exePath)
@@ -46,10 +46,10 @@ class FK:
         if f[0]>0:
             greenCmd+=' -H %.5f/%.5f '%(f[0], f[1])
         greenCmd +=' -N%d/%.3f'%(2**expnt,dt)
-        if expsmth !=0:
-            greenCmd+='%d'%(2**expsmth)
+        if expsmth >=0:
+            greenCmd+='/%d'%(2**expsmth)
         if dk>0:
-            greenCmd+='/%.3f'%dk
+            greenCmd+='/%f'%dk
             if taper>0:
                 greenCmd+='/%.3f'%taper
         greenCmd+=' '
@@ -122,8 +122,8 @@ class FK:
             sacs = [obspy.read(sacName)[0] for sacName in sacNames]
             sacsL.append(sacs)
         return sacsL
-    def test(self,distance=[50],modelFile='hk',fok='/k',dt=1,depth=15,expnt=10,dura=10):
-        self.calGreen(distance=distance,modelFile=modelFile,fok=fok,dt=dt,depth=depth,expnt=10)
+    def test(self,distance=[50],modelFile='hk',fok='/k',dt=1,depth=15,expnt=10,dura=10,dk=-1):
+        self.calGreen(distance=distance,modelFile=modelFile,fok=fok,dt=dt,depth=depth,expnt=expnt,dk=dk)
         self.syn(dura=dura)
         sacsL = self.readAll()
         for sacs  in sacsL:
