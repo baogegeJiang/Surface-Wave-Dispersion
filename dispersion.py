@@ -28,24 +28,31 @@ class layer:
         self.lamb, self.miu = self.getLame()
         self.zeta = self.getZeta()
         self.xi   = self.getXi()
+    @jit
     def getLame(self):
         miu  = self.vs**2*self.rho
         lamb = self.vp**2*self.rho-2*miu
         return lamb, miu
+    @jit
     def getZeta(self):
         return 1/(self.lamb + 2*self.miu)
+    @jit
     def getXi(self):
         zeta = self.getZeta()
         return 4*self.miu*(self.lamb + self.miu)*zeta
+    @jit
     def getNu(self, k, omega):
         return (k**2-(omega/self.vs.astype(np.complex))**2)**0.5
+    @jit
     def getGamma(self, k,omega):
         return (k**2-(omega/self.vp.astype(np.complex))**2)**0.5
+    @jit
     def getChi(self, k,omega):
         ### is it right
         nu = self.getNu(k, omega)
         return k**2 + nu**2
         #return k**2 + np.abs(nu)**2
+    @jit
     def getEA(self, k,omega, z,mode = 'PSV'):
         nu    = self.getNu(k, omega)
         gamma = self.getGamma(k, omega)
@@ -99,12 +106,14 @@ class surface:
         self.isBottom = isBottom
         self.E = [None,None]
         self.A = [None,None]
+    @jit
     def submat(self,M):
         shape = M.shape
         lenth = int(shape[0]/2)
         newM  = M.reshape([2, lenth, 2, lenth])
         newM  = newM.transpose([0,2,1,3])
         return newM
+    @jit
     def setTR(self, k, omega):
         E0, A0 = self.layer0.getEA(k, omega, self.z, self.mode)
         E1, A1 = self.layer1.getEA(k, omega, self.z,self.mode)
@@ -132,6 +141,7 @@ class surface:
             self.Rud = -E1[1][0]**(-1)*E1[1][1]*(A1[1][1])
             self.Td = self.Rud*0
             self.Tu = self.Rud*0
+    @jit
     def toMat(self,l):
         shape0 = len(l)
         shape1 = len(l[0])
@@ -152,6 +162,7 @@ class surface:
                 #print(i0,i1,j0,j1)
                 M[i0:i1,j0:j1] = l[i][j]
         return np.mat(M)
+    @jit
     def setTTRRD(self, surface1 = 0):
         if self.isBottom :
             RRdu1 = np.mat(self.Rdu*0)
@@ -160,6 +171,7 @@ class surface:
             RRdu1 =  surface1.RRdu
         self.TTd  = (np.mat(np.eye(self.Rud.shape[0])) - np.mat(self.Rud)*np.mat(RRdu1))**(-1)*np.mat(self.Td)
         self.RRdu = np.mat(self.Rdu) + np.mat(self.Tu)*np.mat(RRdu1)*self.TTd
+    @jit
     def setTTRRU(self, surface0 = 0):
         if self.isTop :
             self.RRud = self.Rud
@@ -213,6 +225,7 @@ class model:
         self.layerL = layerL
         self.surfaceL = surfaceL
         self.layerN = layerN
+    @jit
     def set(self, k,omega):
         for s in self.surfaceL:
             s.setTR(k,omega)
@@ -230,6 +243,7 @@ class model:
                 s.setTTRRU(self.surfaceL[0])
             else:
                 s.setTTRRU(self.surfaceL[i-1])
+    @jit
     def get(self, k, omega):
         self.set(k, omega)
         RRud0 = self.surfaceL[0].RRud
@@ -240,6 +254,7 @@ class model:
             #-E1[1][0]**(-1)*E1[1][1]*(A1[1][1])
             M = self.surfaceL[0].E[1][1][0]+self.surfaceL[0].E[1][1][1]*self.surfaceL[0].A[1][1][1]*RRdu1
         return np.linalg.det(M)
+    @jit
     def plot(self, omega, dv=0.01):
         #k = np.arange(0,1,dk)
         v, k ,det = self.calList(omega, dv)
@@ -247,6 +262,7 @@ class model:
         plt.plot(v,np.imag(det),'-.k')
         plt.plot(v,np.abs(det),'r')
         plt.show()
+    @jit
     def calList(self,omega,dv=0.01):
         vs0 = self.layerL[1].vs
         vp0 = self.layerL[1].vp
@@ -256,6 +272,7 @@ class model:
         for i in range(k.shape[0]):
             det[i] = self.get(k[i], omega)
         return v, k, det
+    @jit
     def calV(self, omega,order = 0, dv=0.002, DV = 0.008,calMode='norm',threshold=0.1):
         if calMode =='norm':
             v, k ,det = self.calList(omega, dv)
@@ -277,6 +294,7 @@ class model:
             det0 = np.abs(self.get(omega/v1, omega))
         '''
         return v0,det0
+    @jit
     def calVFast(self,omega,order=0,dv=0.01,DV=0.008,threshold=0.1):
         v = self.layerL[1].vs+1e-8
         v0 = v
@@ -289,7 +307,7 @@ class model:
                 det0 = det1
             if det0 <threshold and det1>det0:
                 return v0, det0
-
+    @jit
     def calDispersion(self, order=0,calMode='norm',threshold=0.1,T= np.arange(1,100,5).astype(np.float)):
         f = 1/T
         omega = 2*np.pi*f
@@ -345,18 +363,21 @@ class disp:
         self.halfDt = halfDt
         self.halfN = np.int(halfDt*self.fs)
         self.xcorrFunc = xcorrSimple
+    @jit
     def cut(self,data):
         maxI = np.argmax(data)
         i0 = max(maxI - self.halfN,0)
         i1 = min(maxI + self.halfN,data.shape[0])
         print(i0,i1)
         return data[i0:i1],i0,i1
+    @jit
     def xcorr(self,data0, data1,isCut=True):
         if isCut:
             data1,i0,i1 = self.cut(data1)
         #print(data0.shape,data1.shape1)
         xx = self.xcorrFunc(data0,data1)
         return xx,i0,i1
+    @jit
     def stft(self,data):
         F,t,zxx = scipy.signal.stft(data,fs=self.fs,nperseg=self.nperseg,\
             noverlap=self.noverlap)

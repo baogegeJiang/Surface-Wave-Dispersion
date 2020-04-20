@@ -9,10 +9,11 @@ class FK:
     '''
     class for using fk program
     '''
-    def __init__(self,exePath=defaultPath):
+    def __init__(self,exePath=defaultPath,orignExe=orignExe):
         self.exePath = exePath
         self.resDir = 'fkRes'
         self.tmpFile = ['res.%s'% s for s in 'ztr']
+        self.orignExe = orignExe
         self.prepare()
 
     def prepare(self):
@@ -22,7 +23,7 @@ class FK:
             os.mkdir(self.resDir)
         exeFiles = ['fk.pl','syn','trav','fk2mt','st_fk','fk','hk']
         for exeFile in exeFiles:
-            os.system('cp %s %s'%(orignExe+exeFile,self.exePath))
+            os.system('cp %s %s'%(self.orignExe+exeFile,self.exePath))
 
     def clear(self,clearRes = False):
         os.system('rm -r %s'%self.exePath)
