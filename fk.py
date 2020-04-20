@@ -44,7 +44,7 @@ class FK:
         os.system(copyModelCmd)
         baseModelName = os.path.basename(modelFile)
         greenCmd = 'cd %s;./fk.pl '%self.exePath
-        greenCmd+=' -M%s/%d%s '%(modelFile,depth,fok)
+        greenCmd+=' -M%s/%d%s '%(baseModelName,depth,fok)
         if isDeg:
             greenCmd+=' -D '
         if f[0]>0:
@@ -76,37 +76,38 @@ class FK:
                 greenCmd += ' %d'%dis
             print(greenCmd)
             os.system(greenCmd)
-        self.greenRes = modelFile + '_%d'%depth
+        self.greenRes = baseModelName + '_%d'%depth
         self.depth = depth
         self.distance = distance
         self.rdep     = rdep
         self.modelFile = modelFile
-    def syn(self,M=[3e25,0,2,3,0,1,0],azimuth=0,dura=1,rise=0.2,srcSac='',f=[0,0],\
+    def syn(self,M=[3e25,0,2,3,0,1,0],azimuth=[0],dura=1,rise=0.2,srcSac='',f=[0,0],\
         ):
-        synCmd = 'cd %s/;./syn -M%.5f'%(self.exePath,M[0])
         self.azimuth = azimuth
-        self.M =M
-        self.source = '%.2f_%.2f'%(dura,rise)
-        for m in M[1:]:
-            synCmd += '/%.5f'%m
-        synCmd+=' '
-        synCmd+=' -A%.2f '%azimuth
-        synCmd+=' -D%.2f/%.2f '%(dura,rise)
-        if len(srcSac)>0:
-            synCmd +=' -S%s '%srcSac
-        if f[0]>0:
-            synCmd+=' -F%.5f/%.5f '%(f[0],f[1])
-        for dis in self.distance:
-            #1.0000_0.000.grn.0
-            firstFile = '%s/%d.grn.0'%(self.greenRes,dis)
-            tmpCmd = synCmd
-            tmpCmd += ' -G%s '%firstFile
-            tmpCmd += ' -O%s'%self.tmpFile[0]
-            print(tmpCmd)
-            os.system(tmpCmd)
-            self.mvSac(dis)
-    def mvSac(self, dis):
-        fileName = self.getFileName(dis,self.depth,self.azimuth,self.M)
+        for azi in self.azimuth:
+            synCmd = 'cd %s/;./syn -M%.5f'%(self.exePath,M[0])
+            self.M =M
+            self.source = '%.2f_%.2f'%(dura,rise)
+            for m in M[1:]:
+                synCmd += '/%.5f'%m
+            synCmd+=' '
+            synCmd+=' -A%.2f '%azi
+            synCmd+=' -D%.2f/%.2f '%(dura,rise)
+            if len(srcSac)>0:
+                synCmd +=' -S%s '%srcSac
+            if f[0]>0:
+                synCmd+=' -F%.5f/%.5f '%(f[0],f[1])
+            for dis in self.distance:
+                #1.0000_0.000.grn.0
+                firstFile = '%s/%d.grn.0'%(self.greenRes,dis)
+                tmpCmd = synCmd
+                tmpCmd += ' -G%s '%firstFile
+                tmpCmd += ' -O%s'%self.tmpFile[0]
+                print(tmpCmd)
+                os.system(tmpCmd)
+                self.mvSac(dis,azi)
+    def mvSac(self, dis,azi):
+        fileName = self.getFileName(dis,self.depth,azi,self.M)
         for i in range(3):
             resDir =os.path.dirname(fileName[i])
             if not os.path.exists(resDir):
@@ -114,25 +115,29 @@ class FK:
             mvCmd = 'mv %s %s'%(self.exePath+self.tmpFile[i],fileName[i])
             os.system(mvCmd)
     def getFileName(self, dis,depth, azimuth, M):
-        dirName = '%s/%s/%d/'%(self.resDir,self.modelFile,depth)
-        basename ='%s_%d_%d'%(self.source,dis,azimuth)
+        dirName = '%s/%s/%d/'%(self.resDir,os.path.basename(self.modelFile),depth)
+        basename ='%s_%d_%.2f'%(self.source,dis,azimuth)
         for m in M:
             basename+='%.3f_'%m
         return [(dirName+basename[:-1]+'.%s')%s for s in 'ztr']
     def readAll(self):
         sacsL=[]
         for dis in self.distance:
-            sacNames = self.getFileName(dis,self.depth,self.azimuth,self.M)
-            sacs = [obspy.read(sacName)[0] for sacName in sacNames]
-            sacsL.append(sacs)
+            for azi in self.azimuth:
+                sacNames = self.getFileName(dis,self.depth,azi,self.M)
+                sacs = [obspy.read(sacName)[0] for sacName in sacNames]
+                sacsL.append(sacs)
         return sacsL
-    def test(self,distance=[50],modelFile='hk',fok='/k',dt=1,depth=15,expnt=10,dura=10,dk=-1):
+    def test(self,distance=[50],modelFile='hk',fok='/k',dt=1,depth=15,\
+        expnt=10,dura=10,dk=-1,azimuth=[0],M=[3e25,0,2,3,0,1,0]):
         self.calGreen(distance=distance,modelFile=modelFile,fok=fok,dt=dt,depth=depth,expnt=expnt,dk=dk)
-        self.syn(dura=dura)
+        self.syn(dura=dura,azimuth=azimuth,M=M)
         sacsL = self.readAll()
+        '''
         for sacs  in sacsL:
             for sac in sacs:
                 sac.plot()
+        '''
         self.sacsL = sacsL
         return sacsL
     def dispersion(self,sac):

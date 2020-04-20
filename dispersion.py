@@ -314,7 +314,7 @@ class model:
         v = omega*0
         for i in range(omega.size):
             v[i]=np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold))[0]
-            print(omega[i],v[i])
+            #print(omega[i],v[i])
         return f,v
     def test(self):
         self.plot(2*np.pi)
@@ -440,14 +440,26 @@ class fv:
     def save(self,filename):
         np.savetxt(filename, np.concatenate([self.f.reshape([-1,1]),\
             self.v.reshape([-1,1])],axis=1))
-
+maxCount = 213
+corrType = np.dtype([ ('xx'       ,np.float64,maxCount),\
+                      ('timeL'    ,np.float64,maxCount),\
+                      ('dDis'     ,np.float64,1),\
+                      ('fs'       ,np.float64,1),\
+                      ('az'       ,np.float64,2),\
+                      ('dura'     ,np.float64,1),\
+                      ('M'        ,np.float64,7),\
+                      ('dis'      ,np.float64,2),\
+                      ('dep'      ,np.float64,1),\
+                      ('modeFile' ,np.str,200),\
+                      ])
 
 class corr:
     """docstring for """
     def __init__(self,xx=0,timeL=0,dDis=0,fs=0,az=np.array([0,0]),dura=0,M=np.array([0,0,0,0,0,0,0])\
-        ,dis=np.array([0,0]),dep = 10,modelFile=''):
-        self.xx    = xx 
-        self.timeL = timeL
+        ,dis=np.array([0,0]),dep = 10,modelFile='',dtype = corrType):
+        self.dtype = corrType
+        self.xx    = xx[:maxCount]
+        self.timeL = timeL[:maxCount]
         self.dDis  = dDis
         self.fs    = fs
         self.az    = az
@@ -462,8 +474,13 @@ class corr:
         return {'xx':self.xx, 'timeL':self.timeL, 'dDis':self.dDis, 'fs':self.fs,\
         'az':self.az, 'dura':self.dura,'M':self.M,'dis':self.dis,'dep':self.dep,\
         'modelFile':self.modelFile}
+    def toMat(self):
+        return np.array((self.xx, self.timeL, self.dDis,self.fs,self.az, self.dura\
+            ,self.M,self.dis,self.dep,self.modelFile),self.dtype)
     def setFromFile(self,file):
         mat        = scipy.io.load(file)
+        self.setFromDict(mat)
+    def setFromDict(self,mat):
         self.xx    = mat['xx'] 
         self.timeL = mat['timeL']
         self.dDis  = mat['dDis']
@@ -475,7 +492,7 @@ class corr:
         self.dep   = mat['dep']
         self.modelFile = mat['modelFile']
     def save(self,fileName):
-        scipy.io.savemat(fileName,self.toDict())
+        scipy.io.savemat(fileName,self.toMat())
 
         
 def genModel(modelFile = 'prem',N=100,perD = 0.10,depthMul=2):
@@ -486,12 +503,14 @@ def genModel(modelFile = 'prem',N=100,perD = 0.10,depthMul=2):
     model0 = np.loadtxt(modelFile)
     for i in range(N):
         model = model0.copy()
-        depthLast = -10
+        depthLast = 0
         for j in range(model.shape[0]):
-            depth0 = model[j,0]
-            depth = max(depthLast,depth0 + (depth0-depthLast)*perD*depthMul*(2*np.random.rand()-1))
-            depth0= depth
-            model[j,0]=depth
+            depth0     = model[j,0]
+            depth      = max(depthLast,depthLast + (depth0-depthLast)*(1+perD*depthMul*(2*np.random.rand()-1)))
+            if i ==0:
+                depth=0
+            depthLast  = depth
+            model[j,0] = depth
             for k in range(1,6):
                 model[j,k]*=1+perD*(2*np.random.rand()-1)
         np.savetxt('%s/%s%d'%(modelDir,modelFile,i),model)
@@ -504,3 +523,27 @@ def genFvFile(modelFile,fvFile='',mode='PSV',getMode = 'norm',layerMode ='prem',
     f,v=m.calDispersion(order=0,calMode=calMode,threshold=0.1,T=T)
     f = fv([f,v],'num')
     f.save(fvFile)
+
+def corrSac(d,sac0,sac1,az=np.array([0,0]),dura=0,M=np.array([0,0,0,0,0,0,0])\
+    ,dis=np.array([0,0]),dep = 10,modelFile=''):
+    corr = d.sacXcorr(sac0,sac1)
+    corr.az    = az
+    corr.dura  = dura
+    corr.M     = M
+    corr.dis   = dis
+    corr.dep   = dep
+    corr.modelFile = modelFile
+    return corr
+def corrSacsL(d,sacsL,dura=0,M=np.array([0,0,0,0,0,0,0])\
+    ,dep = 10,modelFile=''):
+    corrL = []
+    for sacs0 in sacsL:
+        for sacs1 in sacsL:
+            sac0 = sacs0[0]
+            sac1 = sacs1[0]
+            #print(sac0,sac1,sac0.stats['sac']['az'],sac1.stats['sac']['az'])
+            az   = np.array([sac0.stats['sac']['az'],sac1.stats['sac']['az']])
+            dis  = np.array([sac0.stats['sac']['dist'],sac1.stats['sac']['dist']])
+            corrL.append(corrSac(d,sac0,sac1,az,dura,M,dis,dep,modelFile).toMat())
+    return corrL
+
