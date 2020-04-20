@@ -398,6 +398,11 @@ class disp:
         return xx, zxx, F, t
 
 class fv:
+    '''
+    class for dispersion result
+    it have two attributes f and v, each element in v accosiate with an 
+     element in v 
+    '''
     def __init__(self,input,mode='num'):
         if mode == 'num':
             self.f = input[0]
@@ -419,7 +424,7 @@ class fv:
 class corr:
     """docstring for """
     def __init__(self,xx=0,timeL=0,dDis=0,fs=0,az=np.array([0,0]),dura=0,M=np.array([0,0,0,0,0,0,0])\
-        ,dis=np.array([0,0]),dep = 10):
+        ,dis=np.array([0,0]),dep = 10,modelFile=''):
         self.xx    = xx 
         self.timeL = timeL
         self.dDis  = dDis
@@ -429,11 +434,13 @@ class corr:
         self.M     = M
         self.dis   = dis
         self.dep   = dep
+        self.modelFile=modelFile
     def output(self):
         return self.xx,self.timeL,self.dDis,self.fs
     def toDict(self):
         return {'xx':self.xx, 'timeL':self.timeL, 'dDis':self.dDis, 'fs':self.fs,\
-        'az':self.az, 'dura':self.dura,'M':self.M,'dis':self.dis,'dep':self.dep}
+        'az':self.az, 'dura':self.dura,'M':self.M,'dis':self.dis,'dep':self.dep,\
+        'modelFile':self.modelFile}
     def setFromFile(self,file):
         mat        = scipy.io.load(file)
         self.xx    = mat['xx'] 
@@ -445,6 +452,7 @@ class corr:
         self.M     = mat['M']
         self.dis   = mat['dis']
         self.dep   = mat['dep']
+        self.modelFile = mat['modelFile']
     def save(self,fileName):
         scipy.io.savemat(fileName,self.toDict())
 

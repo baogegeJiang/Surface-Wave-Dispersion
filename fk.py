@@ -6,6 +6,9 @@ import os
 defaultPath='fkRun/'
 orignExe = '/Users/jiangyiran/prog/fk/fk/'
 class FK:
+    '''
+    class for using fk program
+    '''
     def __init__(self,exePath=defaultPath):
         self.exePath = exePath
         self.resDir = 'fkRes'
