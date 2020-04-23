@@ -4,10 +4,11 @@ import matplotlib.pyplot as plt
 from mathFunc import getDetec,xcorrSimple,xcorrComplex,flat
 from numba import jit,float32, int64
 from scipy import fftpack,interpolate
-from fk import FK
+from fk import FK,getSourceSacName,FKL
 import os 
 from scipy import io as sio
 import obspy
+from multiprocessing import Process, Manager
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -196,7 +197,8 @@ class model:
         norm is enough to get phase velocity
         new is to get fundamental phase velocity for PSV
     '''
-    def __init__(self,modelFile, mode='PSV',getMode = 'norm',layerMode ='norm',layerN=10000,isFlat=False,R=6371,flatM=-2):
+    def __init__(self,modelFile, mode='PSV',getMode = 'norm',layerMode ='norm',layerN=10000,isFlat=False,R=6371,flatM=-2,\
+        pog='p'):
         #z0 z1 rho vp vs Qkappa Qmu
         #0  1  2   3  4  5      6
         self.modelFile = modelFile
@@ -218,11 +220,17 @@ class model:
                 #vp,vs,rho,z=[0,0],Qp=1200,Qs=600
                 vp=data[i-1,1]
                 vs=data[i-1,2]
-                rho=data[i-1,2]
+                rho=data[i-1,3]
+                if data.shape[1] == 6:
+                    Qp=data[i-1,4]
+                    Qs=data[i-1,5]
+                else:
+                    Qp= 1200
+                    Qs=600
                 z =np.array([data[i-1,0],data[min(i+1-1,layerN-2),0]])
                 if isFlat:
                     z,vp,vs,rho = flat(z,vp,vs,rho,m=flatM,R=R)
-                layerL[i] = layer(vp,vs,rho,z,data[i-1,4],data[i-1,5])
+                layerL[i] = layer(vp,vs,rho,z,Qp,Qs)
         surfaceL = [None for i in range(layerN-1)]
         for i in range(layerN-1):
             isTop = False
@@ -285,7 +293,7 @@ class model:
     @jit
     def __call__(self,omega,calMode='fast'):
         return self.calV(omega,order = 0, dv=0.002, DV = 0.008,calMode=calMode,threshold=0.1)
-    def calV(self, omega,order = 0, dv=0.002, DV = 0.008,calMode='norm',threshold=0.1):
+    def calV(self, omega,order = 0, dv=0.002, DV = 0.008,calMode='norm',threshold=0.1,vStart = -1):
         if calMode =='norm':
             v, k ,det = self.calList(omega, dv)
             iL, detL = getDetec(-np.abs(det), minValue=-0.1, minDelta=int(DV /dv))
@@ -293,7 +301,7 @@ class model:
             v0 = v[i0]
             det0 = -detL[0]
         elif calMode == 'fast':
-             v0,det0=self.calVFast(omega,order=order,dv=dv,DV=DV,threshold=threshold)
+             v0,det0=self.calVFast(omega,order=order,dv=dv,DV=DV,threshold=threshold,vStart=vStart)
         '''
         ddv = 0.001  
         for i in range(5):
@@ -307,12 +315,20 @@ class model:
         '''
         return v0,det0
     @jit
-    def calVFast(self,omega,order=0,dv=0.01,DV=0.008,threshold=0.1):
-        v = self.layerL[1].vs+1e-8
+    def calVFast(self,omega,order=0,dv=0.01,DV=0.008,threshold=0.1,vStart=-1):
+        if self.getMode == 'new':
+            v = self.layerL[1].vs/2+1e-8
+        else:
+            v = self.layerL[1].vs+1e-8
+        #print(vStart,v)
+        if vStart >0:
+            v  = max(self.layerL[1].vs+1e-8,vStart - 0.02)
+            dv = 0.001
         v0 = v
         det0=10
-        for i in range(10000):
+        for i in range(100000):
             v1 = i*dv+v
+            #print(v1)
             det1 =np.abs(self.get(omega/v1, omega))
             if  det1<threshold and det1 < det0:
                 v0 = v1
@@ -320,12 +336,23 @@ class model:
             if det0 <threshold and det1>det0:
                 return v0, det0
     @jit
-    def calDispersion(self, order=0,calMode='norm',threshold=0.1,T= np.arange(1,100,5).astype(np.float)):
+    def calDispersion(self, order=0,calMode='norm',threshold=0.1,T= np.arange(1,100,5).astype(np.float),pog='p'):
         f = 1/T
         omega = 2*np.pi*f
         v = omega*0
         for i in range(omega.size):
-            v[i]=np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold))[0]
+            if pog =='p':
+                V   =np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold))[0]
+                v[i]=np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold,vStart=V))[0]
+            elif pog =='g' :
+                omega0 = omega[i]*0.9
+                omega1 = omega[i]*1.1
+                V=np.abs(self.calV(omega1,order=order,calMode=calMode,threshold=threshold))[0]
+                v0=np.abs(self.calV(omega0,order=order,calMode=calMode,threshold=threshold,vStart=V))[0]
+                v1=np.abs(self.calV(omega1,order=order,calMode=calMode,threshold=threshold,vStart=V))[0]
+                dOmega = omega1 - omega0
+                dK     = omega1/v1 - omega0/v0
+                v[i] = dOmega/dK 
             #print(omega[i],v[i])
         return f,v
     def test(self):
@@ -499,19 +526,19 @@ class corr:
         mat        = scipy.io.load(file)
         self.setFromDict(mat)
     def setFromDict(self,mat):
-        self.xx    = mat['xx'] 
-        self.timeL = mat['timeL']
-        self.dDis  = mat['dDis']
-        self.fs    = mat['fs']
-        self.az    = mat['az']
-        self.dura  = mat['dura']
-        self.M     = mat['M']
-        self.dis   = mat['dis']
-        self.dep   = mat['dep']
-        self.modelFile = mat['modelFile']
-        self.name0 = mat['name0']
-        self.name1 = mat['name1']
-        self.srcSac= mat['srcSac']
+        self.xx        = mat['xx'] 
+        self.timeL     = mat['timeL']
+        self.dDis      = mat['dDis']
+        self.fs        = mat['fs']
+        self.az        = mat['az']
+        self.dura      = mat['dura']
+        self.M         = mat['M']
+        self.dis       = mat['dis']
+        self.dep       = mat['dep']
+        self.modelFile = str(mat['modelFile'])
+        self.name0     = str(mat['name0'])
+        self.name1     = str(mat['name1'])
+        self.srcSac    = str(mat['srcSac'])
         return self
     def save(self,fileName):
         sio.savemat(fileName,self.toMat())
@@ -567,7 +594,7 @@ class corr:
                                   ('M'        ,np.float64,7),\
                                   ('dis'      ,np.float64,2),\
                                   ('dep'      ,np.float64,1),\
-                                  ('modelFile' ,np.str,200),\
+                                  ('modelFile',np.str,200),\
                                   ('name0'    ,np.str,200),\
                                   ('name1'    ,np.str,200),\
                                   ('srcSac'   ,np.str,200)\
@@ -585,9 +612,21 @@ class corr:
         timeDis = np.exp(-((timeL-t)/sigma)**2)
         return timeDis
 
+def getTimeDis(corrL,fvD,T,sigma=2,maxCount=512):
+    maxCount0 = maxCount
+    x    = np.zeros([len(corrL),maxCount,1,1])
+    y    = np.zeros([len(corrL),maxCount,1,len(T)])
+    #maxCount = min(maxCount,corrL[0].xx.shape[0])
+    for i in range(len(corrL)):
+        maxCount = min(maxCount0,corrL[i].xx.shape[0])
+        x[i,:maxCount,0,0] = corrL[i].xx[:maxCount]
+        y[i,:maxCount,0,:] = corrL[i].outputTimeDis(fvD[corrL[i].modelFile],\
+            T=T,sigma=sigma)[:maxCount]
+    return x,y
 
 def getSacTimeL(sac):
     return np.arange(len(sac))*sac.stats['delta']+sac.stats['sac']['b']
+
 def genModel(modelFile = 'prem',N=100,perD = 0.10,depthMul=2):
     modelDir = 'models/'
     if not os.path.exists(modelDir):
@@ -604,7 +643,7 @@ def genModel(modelFile = 'prem',N=100,perD = 0.10,depthMul=2):
                 depth=0
             depthLast  = depth
             model[j,0] = depth
-            for k in range(1,6):
+            for k in range(1,model.shape[1]):
                 if j ==0:
                     d = 0.3
                 else:
@@ -616,16 +655,27 @@ def genModel(modelFile = 'prem',N=100,perD = 0.10,depthMul=2):
         np.savetxt('%s/%s%d'%(modelDir,modelFile,i),model)
 
 def genFvFile(modelFile,fvFile='',mode='PSV',getMode = 'norm',layerMode ='prem',layerN=20,calMode='fast',\
-    T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),isFlat=False):
+    T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),isFlat=False,pog='p'):
     if len(fvFile) ==0:
         if not isFlat:
             fvFile='%s_fv'%modelFile
         else:
             fvFile='%s_fv_flat'%modelFile
+        fvFile+= '_'+getMode
+        fvFile+= '_'+pog
     m = model(modelFile,mode=mode,getMode=getMode,layerMode=layerMode,layerN=layerN,isFlat=isFlat)
-    f,v=m.calDispersion(order=0,calMode=calMode,threshold=0.1,T=T)
+    f,v=m.calDispersion(order=0,calMode=calMode,threshold=0.1,T=T,pog=pog)
     f = fv([f,v],'num')
     f.save(fvFile)
+
+def calFv(iL,originName='models/prem',layerN=20,pog='p',\
+    T=np.array([5,10,20,30,50,80,100,150,200,250,300])):
+    for i in iL:
+        modelFile = '%s%d'%(originName,i)
+        print(i)
+        genFvFile(modelFile,fvFile='',mode='PSV',getMode = 'norm',layerMode ='prem',layerN=layerN,calMode='fast',\
+            T=T,isFlat=True,pog=pog)
+
 
 def corrSac(d,sac0,sac1,name0='',name1='',az=np.array([0,0]),dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dis=np.array([0,0]),dep = 10,modelFile='',srcSac=''):
@@ -659,3 +709,49 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             corrL.append(corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile,srcSac).toMat())
     return corrL
 
+def singleFk(f,iL,corrLL,index,D,originName,srcSacDir,distance,srcSacNum,delta,layerN):
+    for i in iL:
+        modelFile = '%s%d'%(originName,i)
+        print(modelFile)
+        m = model(modelFile=modelFile,mode='PSV',layerN=layerN,layerMode ='prem',isFlat=True)
+        m.covert2Fk(0)
+        m.covert2Fk(1)
+        dura = np.random.rand()*10+20
+        depth= int(np.random.rand()*20+10)+(i%10)
+        print('###################################',depth)
+        M=np.array([3e25,0,0,0,0,0,0])
+        M[1:] = np.random.rand(6)
+        srcSacIndex = int(np.random.rand()*srcSacNum*0.999)
+        rise = 0.1+0.3*np.random.rand()
+        sacsL, sacNamesL= f.test(distance=distance+np.round((np.random.rand(distance.size)-0.5)*80),\
+            modelFile=modelFile,fok='/k',dt=delta,depth=depth,expnt=10,dura=dura,dk=0.1,\
+            azimuth=[0,int(6*(np.random.rand()-0.5))],M=M,rise=rise,srcSac=getSourceSacName(srcSacIndex,delta,\
+                srcSacDir = srcSacDir),isFlat=True)
+        corrLL[index] += corrSacsL(D,sacsL,sacNamesL,modelFile=modelFile,\
+            srcSac=getSourceSacName(srcSacIndex,delta,srcSacDir = srcSacDir))
+#           20,d.singleFk,20,D,'models/ak135',srcSacDir,distance,srcSacNum,delta,orignExe=orignExe
+def multFK(fkN,singleFk,num,D,originName,srcSacDir,distance,srcSacNum,delta,layerN,orignExe):
+    fkN = 20 
+    fkL = FKL(fkN,orignExe=orignExe)
+    pL = []
+    manager = Manager()
+    corrLL  = manager.list()
+    for i in range(fkN):
+        corrLL. append([])
+    for i in range(fkN):
+        f = fkL[i]
+        pL.append(Process(\
+            target=singleFk,\
+            args=(f,range(i,num,fkN), corrLL,i,D,originName,srcSacDir,distance,srcSacNum,delta,layerN) 
+            )\
+        )
+        pL[-1].start()
+    for p in pL:
+        p.join()
+        print('######',i)
+        i+=1
+    corrL = []
+    for tmp in corrLL:
+        corrL += tmp
+        corrMat = np.array(corrL)
+    return corrMat

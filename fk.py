@@ -204,27 +204,6 @@ def FKL(n,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/'):
         fkL.append(FK(exePath=exePath+'/%d/'%i,orignExe=orignExe,resDir=resDir+'/%d/'%i))
     return fkL
 
-def multFK(fkN,singleFk,num,orignExe=orignExe):
-    fkN = 20 
-    fkL = FKL(fkN,orignExe=orignExe)
-    pL = []
-    manager = Manager()
-    corrLL  = manager.list()
-    for i in range(fkN):
-        corrLL. append([])
-    for i in range(fkN):
-        f = fkL[i]
-        pL.append(Process(target=singleFk,args=(f,range(i,num,fkN), corrLL,i)))
-        pL[-1].start()
-    for p in pL:
-        p.join()
-        print('######',i)
-        i+=1
-    corrL = []
-    for tmp in corrLL:
-        corrL += tmp
-        corrMat = np.array(corrL)
-    return corrMat
 
 def genSourceSacs(f,N,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/srcSac/',time=50):
     fileNameL = [getSourceSacName(index,delta,srcSacDir) for index in range(N)]
@@ -234,7 +213,6 @@ def genSourceSacs(f,N,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/s
     f.genSourceSacs(fileNameL,delta,time=time)
 def getSourceSacName(index,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/srcSac/'):
     return '%s/%d_%d.sac'%(srcSacDir,index,delta*1e3)
-
 
 
 
