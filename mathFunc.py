@@ -34,11 +34,11 @@ def xcorrSimple(a,b):
 
 @jit
 def xcorrComplex(a,b):
-    a = fftpack.hilbert(a)
-    b = fftpack.hilbert(b)
+    a = fftpack.hilbert(a)*1j+a
+    b = fftpack.hilbert(b)*1j+b
     la=a.size
     lb=b.size
-    c=np.zeros(la-lb+1).astype(a.dtype)
+    c=np.zeros(la-lb+1).astype(np.complex)
     for i in range(la-lb+1):
         tc= (a[i:(i+lb)]*b[0:(0+lb)].conj()).sum()
         c[i]=tc
@@ -130,3 +130,19 @@ def CEPS(x):
     logspec=np.log(spec*np.conj(spec))
     y=abs(np.fft.ifft(logspec))
     return y
+
+def flat(z,vp,vs,rho,m=-2,R=6371):
+    z = np.array(z)
+    zmid = z.mean()
+    miu  = vs**2*rho
+    lamb = vp**2*rho-2*miu
+    r = R-zmid
+    zNew = R*np.log(R/(R-z))
+    lambNew =  ((r/R)**(m-1))*lamb
+    miuNew  =  ((r/R)**(m-1))*miu
+    rhoNew  =  ((r/R)**(m+1))*rho
+    vpNew   =  ((lambNew+2*miuNew)/rhoNew)**0.5
+    vsNew   =  (miuNew/rhoNew)**0.5
+    return zNew,vpNew,vsNew,rhoNew
+
+

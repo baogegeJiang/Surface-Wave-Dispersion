@@ -3,24 +3,25 @@ import scipy
 import matplotlib.pyplot as plt
 import obspy
 import os
+from multiprocessing import Process, Manager
 defaultPath='fkRun/'
 orignExe = '/Users/jiangyiran/prog/fk/fk/'
 class FK:
     '''
     class for using fk program
     '''
-    def __init__(self,exePath=defaultPath,orignExe=orignExe):
+    def __init__(self,exePath=defaultPath,orignExe=orignExe,resDir='fkRes'):
         self.exePath = exePath
-        self.resDir = 'fkRes'
+        self.resDir = resDir
         self.tmpFile = ['res.%s'% s for s in 'ztr']
         self.orignExe = orignExe
         self.prepare()
 
     def prepare(self):
         if not os.path.exists(self.exePath):
-            os.mkdir(self.exePath)
+            os.makedirs(self.exePath)
         if not os.path.exists(self.resDir):
-            os.mkdir(self.resDir)
+            os.makedirs(self.resDir)
         exeFiles = ['fk.pl','syn','trav','fk2mt','st_fk','fk','hk']
         for exeFile in exeFiles:
             os.system('cp %s %s'%(self.orignExe+exeFile,self.exePath))
@@ -33,11 +34,15 @@ class FK:
 
     def calGreen(self,distance=[1],modelFile='paper',fok='/k',srcType=[0,2],rdep=0,\
         isDeg = False, dt=1, expnt=8, expsmth = 0,f=[0,0],p=[0,0],kmax=0,\
-        updn=0,depth=1, taper=0.3, dk=0.3,cmd=''):
+        updn=0,depth=1, taper=0.3, dk=0.3,cmd='',isFlat=False):
         if fok =='/f' or fok == '':
             modelFile+='fk1'
         else:
             modelFile+='fk0'
+        if isFlat:
+            modelFile +='_flat'
+        if fok == '/f' and isFlat:
+            print('warning, may do flat twice')
         if not os.path.exists(modelFile):
             modelFile = modelFile[:-1]
         copyModelCmd = 'cp %s %s'%(modelFile,self.exePath)
@@ -92,9 +97,11 @@ class FK:
                 synCmd += '/%.5f'%m
             synCmd+=' '
             synCmd+=' -A%.2f '%azi
-            synCmd+=' -D%.2f/%.2f '%(dura,rise)
+            
             if len(srcSac)>0:
                 synCmd +=' -S%s '%srcSac
+            else:
+                synCmd+=' -D%.2f/%.2f '%(dura,rise)
             if f[0]>0:
                 synCmd+=' -F%.5f/%.5f '%(f[0],f[1])
             for dis in self.distance:
@@ -122,16 +129,20 @@ class FK:
         return [(dirName+basename[:-1]+'.%s')%s for s in 'ztr']
     def readAll(self):
         sacsL=[]
+        sacNamesL=[]
         for dis in self.distance:
             for azi in self.azimuth:
                 sacNames = self.getFileName(dis,self.depth,azi,self.M)
                 sacs = [obspy.read(sacName)[0] for sacName in sacNames]
+                sacNamesL.append(sacNames)
                 sacsL.append(sacs)
-        return sacsL
+        return sacsL,sacNamesL
     def test(self,distance=[50],modelFile='hk',fok='/k',dt=1,depth=15,\
-        expnt=10,dura=10,dk=-1,azimuth=[0],M=[3e25,0,2,3,0,1,0]):
-        self.calGreen(distance=distance,modelFile=modelFile,fok=fok,dt=dt,depth=depth,expnt=expnt,dk=dk)
-        self.syn(dura=dura,azimuth=azimuth,M=M)
+        expnt=10,dura=10,dk=-1,azimuth=[0],M=[3e25,0,2,3,0,1,0],isFlat=False,\
+        srcSac='',rise=0.2):
+        self.calGreen(distance=distance,modelFile=modelFile,fok=fok,dt=dt,\
+            depth=depth,expnt=expnt,dk=dk,isFlat=isFlat)
+        self.syn(dura=dura,azimuth=azimuth,M=M,srcSac=srcSac,rise=rise)
         sacsL = self.readAll()
         '''
         for sacs  in sacsL:
@@ -151,5 +162,80 @@ class FK:
             for sac in sacs:
                 F,t,zxx =self.dispersion(sac)
                 plt.subplot(2,1,1);plt.pcolor(t,F,np.abs(zxx));plt.subplot(2,1,2);plt.plot(sac.data);plt.show()
+    def genSourceSac(self,filename,data=np.random.rand(100),b=0,delta=1,t=obspy.UTCDateTime(0)):
+        header = {'kstnm': 'FK', 'kcmpnm': 'BHZ', 'stla': 0,\
+        'stlo': 0,'evla': 0, 'evlo': 0, 'evdp': 0,\
+        'nzyear': t.year,'nzjday': t.julday, 'nzhour': t.hour, \
+        'nzmin': t.minute,'nzsec': t.second,'nzmsec': int(t.microsecond/1e3)\
+        , 'delta': delta,'b':b}
+        sac = obspy.io.sac.sactrace.SACTrace(data=data,**header).to_obspy_trace()
+        sac.write(filename)
+    def genSourceSacs(self,fileNameL,delta=0.5,time=50):
+        count = int(time/delta)
+        i=0
+        for file in fileNameL:
+            #print(file)
+            dura = 10+20*np.random.rand()
+            duraCount = int(dura/delta)
+            data = np.zeros(count)
+            if i%3==0:
+                data[:duraCount] += 1
+                data[:duraCount] += np.random.rand()*0.2*np.random.rand(duraCount)
+            if i%3 ==1:
+                mid = int(duraCount/2)
+                data[:mid] = np.arange(mid)
+                data[mid:2*mid] = np.arange(mid-1,-1,-1)
+                data[:duraCount] += np.random.rand()*0.2*np.random.rand(duraCount)*mid
+            if i%3 ==2:                
+                rise = 0.1+0.3*np.random.rand()
+                mid = int(duraCount/2)
+                i0 = int(duraCount*rise)
+                data[:duraCount] += i0
+                data[:i0] = np.arange(i0)
+                data[duraCount-i0:duraCount] = np.arange(i0-1,-1,-1)
+                data[:duraCount] += np.random.rand()*0.2*np.random.rand(duraCount)*i0
+            data/=data.sum()
+            i+=1
+            self.genSourceSac(file,data,delta=delta)
+
+def FKL(n,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/'):
+    fkL = []
+    for i in range(n):
+        fkL.append(FK(exePath=exePath+'/%d/'%i,orignExe=orignExe,resDir=resDir+'/%d/'%i))
+    return fkL
+
+def multFK(fkN,singleFk,num,orignExe=orignExe):
+    fkN = 20 
+    fkL = FKL(fkN,orignExe=orignExe)
+    pL = []
+    manager = Manager()
+    corrLL  = manager.list()
+    for i in range(fkN):
+        corrLL. append([])
+    for i in range(fkN):
+        f = fkL[i]
+        pL.append(Process(target=singleFk,args=(f,range(i,num,fkN), corrLL,i)))
+        pL[-1].start()
+    for p in pL:
+        p.join()
+        print('######',i)
+        i+=1
+    corrL = []
+    for tmp in corrLL:
+        corrL += tmp
+        corrMat = np.array(corrL)
+    return corrMat
+
+def genSourceSacs(f,N,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/srcSac/',time=50):
+    fileNameL = [getSourceSacName(index,delta,srcSacDir) for index in range(N)]
+    #print(fileNameL)
+    if not os.path.exists(srcSacDir):
+        os.makedirs(srcSacDir)
+    f.genSourceSacs(fileNameL,delta,time=time)
+def getSourceSacName(index,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/srcSac/'):
+    return '%s/%d_%d.sac'%(srcSacDir,index,delta*1e3)
+
+
+
 
 
