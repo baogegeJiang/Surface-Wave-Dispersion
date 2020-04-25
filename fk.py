@@ -228,6 +228,9 @@ class fkL(list) :
         for tmp in resLL:
             resL += tmp
         return resL
+    def clear(self):
+        for f in self:
+            f.clear()
 
 def genSourceSacs(f,N,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/srcSac/',time=50):
     fileNameL = [getSourceSacName(index,delta,srcSacDir) for index in range(N)]

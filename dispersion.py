@@ -80,6 +80,7 @@ class config:
                         model[j,k]=model[j,k]+(0+perD*(2*np.random.rand()-1))*d
             np.savetxt('%s/%s%d'%(modelDir,modelFile,i),model)
 
+
     def genFvFile(self,modelFile='',fvFile=''):
         if len(modelFile)==0:
             modelFile = self.originName
@@ -95,8 +96,8 @@ class config:
         f = fv([f,v],'num')
         f.save(fvFile)
     def calFv(self,iL,pog=''):
-         pog0 = self.pog
-         if len(pog)==0:
+        pog0 = self.pog
+        if len(pog)==0:
             pog = pog0
         self.pog = pog
         for i in iL:
@@ -106,6 +107,32 @@ class config:
         self.pog=pog0
     def getModelFileByIndex(self,i):
         return '%s%d'%(self.originName,i)
+    def plotModelL(self,modelL):
+        plt.close()
+        for model in modelL:
+            z,vp,vs = model.outputZV()
+            plt.plot(vp,z,'b',linewidth=0.3,alpha=0.3)
+            plt.plot(vs,z,'r',linewidth=0.3,alpha=0.3)
+        plt.title(self.originName)
+        plt.gca().invert_yaxis() 
+        plt.xlabel('v/(m/s)')
+        plt.ylabel('depth')
+        plt.savefig(self.originName+'.jpg',dpi=300)
+    def plotFVL(self,fvD,pog=''):
+        if len(pog)==0:
+            pog=self.pog
+        plt.close()
+        for key in fvD:
+            FV =fvD[key]
+            f = FV.f
+            v = FV.v
+            plt.plot(v,f,'b',linewidth=0.3,alpha=0.3)
+        plt.xlabel('v/(m/s)')
+        plt.ylabel('f/Hz')
+        plt.gca().semilogy()
+        plt.title(self.originName+pog)
+        plt.savefig('%s_fv_%s.jpg'%(self.originName,pog),dpi=300)
+
         
 
 class layer:
@@ -484,6 +511,17 @@ class model:
                 f.write('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rho))
                 if i!= self.layerN-1:
                     f.write('\n')
+    def outputZV(self):
+        layerN = len(self.layerL)
+        z  = np.zeros(layerN*2-2)
+        vp = np.zeros(layerN*2-2)
+        vs = np.zeros(layerN*2-2)
+        for i in range(1,layerN):
+            iNew = i-1
+            z[iNew*2:iNew*2+2] = self.layerL[i].z
+            vp[iNew*2:iNew*2+2] =np.array([self.layerL[i].vp,self.layerL[i].vp])
+            vs[iNew*2:iNew*2+2] = np.array([self.layerL[i].vs,self.layerL[i].vs])
+        return z,vp,vs
 
 
 
@@ -707,16 +745,21 @@ class corr:
         timeDis = np.exp(-((timeL-t)/sigma)**2)
         return timeDis
 
-def getTimeDis(corrL,fvD,T,sigma=2,maxCount=512):
+def getTimeDis(corrL,fvD,T,sigma=2,maxCount=512,randD=30):
     maxCount0 = maxCount
     x    = np.zeros([len(corrL),maxCount,1,1])
     y    = np.zeros([len(corrL),maxCount,1,len(T)])
     #maxCount = min(maxCount,corrL[0].xx.shape[0])
     for i in range(len(corrL)):
+        randIndex = int(randD*np.random.rand())
         maxCount = min(maxCount0,corrL[i].xx.shape[0])
-        x[i,:maxCount,0,0] = corrL[i].xx[:maxCount]
-        y[i,:maxCount,0,:] = corrL[i].outputTimeDis(fvD[corrL[i].modelFile],\
-            T=T,sigma=sigma)[:maxCount]
+        if randIndex>maxCount0-corrL[i].xx.shape[0]:
+            randIndex*=0
+        #if i%100==0:
+        #    print(randIndex)
+        x[i,randIndex:maxCount+randIndex,0,0] = corrL[i].xx[0:maxCount]
+        y[i,randIndex:maxCount+randIndex,0,:] = corrL[i].outputTimeDis(fvD[corrL[i].modelFile],\
+            T=T,sigma=sigma)[0:maxCount]
     return x,y
 
 def getSacTimeL(sac):
@@ -761,13 +804,13 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
 
 
 class fkcorr:
-    def __init__(self,config):
+    def __init__(self,config=config()):
         self.config = config
     def __call__(self,index,iL,f,corrLL):
         for i in iL:
-            modelFile = '%s%d'%(self.originName,i)
+            modelFile = '%s%d'%(self.config.originName,i)
             #print(modelFile)
-            m = config.getModel(modelFile)
+            m = self.config.getModel(modelFile)
             m.covert2Fk(0)
             m.covert2Fk(1)
             dura = np.random.rand()*10+20
@@ -777,10 +820,10 @@ class fkcorr:
             M[1:] = np.random.rand(6)
             srcSacIndex = int(np.random.rand()*self.config.srcSacNum*0.999)
             rise = 0.1+0.3*np.random.rand()
-            sacsL, sacNamesL= f.test(distance=self.config.distance+np.round((np.random.rand(self.distance.size)-0.5)*80),\
+            sacsL, sacNamesL= f.test(distance=self.config.distance+np.round((np.random.rand(self.config.distance.size)-0.5)*80),\
                 modelFile=modelFile,fok=self.config.fok,dt=self.config.delta,depth=depth,expnt=self.config.expnt,dura=dura,\
                 dk=self.config.dk,azimuth=[0,int(6*(np.random.rand()-0.5))],M=M,rise=rise,srcSac=getSourceSacName(srcSacIndex,self.config.delta,\
-                    srcSacDir = self.config.srcSacDir),isFlat=True)
+                    srcSacDir = self.config.srcSacDir),isFlat=self.config.isFlat)
             corrLL[index] += corrSacsL(self.config.getDisp(),sacsL,sacNamesL,modelFile=modelFile,\
                 srcSac=getSourceSacName(srcSacIndex,self.config.delta,srcSacDir = self.config.srcSacDir))
 

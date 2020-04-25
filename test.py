@@ -15,15 +15,15 @@ orignExe='/home/jiangyr/program/fk/'
 absPath = '/home/jiangyr/home/Surface-Wave-Dispersion/'
 srcSacDir='/home/jiangyr/Surface-Wave-Dispersion/srcSac/'
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
-        distance=np.arange(400,1500,100),srcSacNum=100,delta=0.5,layerN=1000,\
+        distance=np.arange(400,1500,100),srcSacNum=100,delta=0.5,layerN=20,\
         layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
-        xcorrFunc = mathFunc.xcorrSimple,isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
+        xcorrFunc = mathFunc.xcorrSimple,isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k')
-configTest=d.config(originName='models/ak135',srcSacDir=absPath,\
-        distance=np.arange(400,1500,100),srcSacNum=100,delta=0.5,layerN=1000,\
+configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
+        distance=np.arange(400,1500,100),srcSacNum=100,delta=0.5,layerN=28,\
         layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
-        xcorrFunc = mathFunc.xcorrSimple,isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
+        xcorrFunc = mathFunc.xcorrSimple,isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k')
 
@@ -48,14 +48,14 @@ for p in pL:
 
 fkL = fk.fkL(20,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/')
 FKCORR  = d.fkcorr(config)
-corrMat = np.array(fkL(2,FKCORR))
-sio.savemat('corrL.mat',{'corrLL':corrMat})
+corrMat = np.array(fkL(20,FKCORR))
+sio.savemat('mat/corrL.mat',{'corrLL':corrMat})
 FKCORRTest  = d.fkcorr(configTest)
-corrMatTest = np.array(fkL(2,FKCORRTest))
-sio.savemat('corrLTest.mat',{'corrLL':corrMatTest})
+corrMatTest = np.array(fkL(20,FKCORRTest))
+sio.savemat('mat/corrLTest.mat',{'corrLL':corrMatTest})
 
-fvGD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_g'%i,'file')for i in range(100)}
-fvPD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_p'%i,'file')for i in range(100)}
+fvGD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_g'%i,'file')for i in range(1000)}
+fvPD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_p'%i,'file')for i in range(1000)}
 fvGDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_norm_g'%i,'file')for i in range(100)}
 fvPDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_norm_p'%i,'file')for i in range(100)}
 disDir = 'disDir/'
@@ -80,6 +80,7 @@ for corr in corrLTmp:
     plt.close()
     if i >20:
         break
+
 T = np.array([5,10,20,30,50,80,100,150,200,250])
 outputDir ='predict/'
 if not os.path.exists(outputDir):
