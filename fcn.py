@@ -6,23 +6,28 @@ from keras import backend as K
 from matplotlib import pyplot as plt
 import random
 #传统的方式
-def lossFuncSoft(y0,yout0,w=1):
-    y1 = 1-y0
-    yout1 = 1-yout0
-    return -K.mean(w*y0*K.log(yout0+1e-8)+y1*K.log(yout1+1e-8),axis=-1)
+class lossFuncSoft:
+    def __init__(self,w=1):
+        self.w=w
+    def __call__(self,y0,yout0):
+        y1 = 1-y0
+        yout1 = 1-yout0
+        return -K.mean(self.w*y0*K.log(yout0+1e-8)+y1*K.log(yout1+1e-8),axis=-1)
 
 def hitRate(yin,yout,maxD=10):
-    yinPos  = K.argmax(yin ,axis=2)
-    youtPos = K.argmax(yout,axis=2)
+    yinPos  = K.argmax(yin ,axis=1)
+    youtPos = K.argmax(yout,axis=1)
     d       = K.abs(yinPos - youtPos)
     count   = K.sum(K.sign(d+0.1))
     hitCount= K.sum(K.sign(-d+maxD))
     return hitCount/count
 
-def hitRateNp(yin,yout,maxD=10,K=np):
-    yinPos  = K.argmax(yin ,axis=2)
-    youtPos = K.argmax(yout,axis=2)
+def hitRateNp(yin,yout,maxD=6,K=np):
+    yinPos  = yin.argmax( axis=1)
+    youtPos = yout.argmax(axis=1)
     d       = K.abs(yinPos - youtPos)
+    #print(d)
+    print(d.mean(axis=(0,1)))
     count   = K.sum(d>-0.1)
     hitCount= K.sum(d<maxD)
     return hitCount/count
@@ -41,14 +46,14 @@ class fcnConfig:
         '''
         self.inputSize  = [512,1,1]
         self.outputSize = [512,1,10]
-        self.featureL   = [min(2**(i+1)+30,50) for i in range(8)]
+        self.featureL   = [min(2**(i+1)+30,40) for i in range(8)]
         self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1)]
-        self.kernelL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(2,1)]
+        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(6,1),(4,1),(2,1)]
         self.activationL= ['relu','relu','relu','relu','relu',\
         'relu','relu','relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
         AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
-        self.lossFunc   = lossFuncSoft
+        self.lossFunc   = lossFuncSoft(w=2)
 
 
 class model(Model):
@@ -83,6 +88,7 @@ class model(Model):
     def fit(self,x,y,batchSize=None):
         super().fit(self.inx(x),y,batch_size=batchSize)
     def inx(self,x):
+        #return x/x.max(axis=(1,2,3),keepdims=True)
         return x/x.std(axis=(1,2,3),keepdims=True)
     def __call__(self,x):
         return super(Model, self).__call__(K.tensor(self.inx(x)))
@@ -90,12 +96,12 @@ class model(Model):
         indexL = range(x.shape[0])
         #print(indexL)
         lossMin =100
-        count0  = 20
-        count   =20
+        count0  = 30
+        count   = count0
         for i in range(N):
             iL = random.sample(indexL,perN)
             self.fit(x[iL],y[iL],batchSize=batchSize)
-            if i%10:
+            if i%3==0:
                 if len(xTest)>0:
                     loss    = self.evaluate(self.inx(xTest),yTest)
                     if loss >= lossMin:
@@ -105,9 +111,9 @@ class model(Model):
                         lossMin = loss
                     if count ==0:
                         break
-                    metrics = self.metrics(xTest,yTest)
+                    metrics = self.metrics(yTest,self.predict(xTest))
                     print('test loss: ',loss,' metrics: ',metrics)
-            if i%20:
+            if i%3==0:
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.9)
     def show(self, x, y0,outputDir='predict/',time0L='',delta=0.5,T=np.arange(10)):
         y = self.predict(x)
@@ -118,19 +124,29 @@ class model(Model):
             if len(time0L)>0:
                 timeL+=time0L[i]
             xlim=[timeL[0],timeL[-1]]
+            tmpy0=y0[i,:,0,:]
+            pos0  =tmpy0.argmax(axis=0)
+            tmpy=y[i,:,0,:]
+            pos  =tmpy.argmax(axis=0)
             plt.close()
             plt.subplot(3,1,1)
-            plt.plot(timeL,x[i,:,0,0],'b')
+            plt.title('%s%d'%(outputDir,i))
+            plt.plot(timeL,self.inx(x[i:i+1,:,0:1,0:1])[0,:,0,0],'b')
             plt.xlim(xlim)
             plt.subplot(3,1,2)
             plt.pcolor(timeL,f,y0[i,:,0,:].transpose())
+            plt.plot(timeL[pos.astype(np.int)],f,'r')
+            plt.ylabel('f/Hz')
             plt.gca().semilogy()
             plt.xlim(xlim)
             plt.subplot(3,1,3)
             plt.pcolor(timeL,f,y[i,:,0,:].transpose())
+            plt.plot(timeL[pos0.astype(np.int)],f,'b')
+            plt.ylabel('f/Hz')
+            plt.xlabel('t/s')
             plt.gca().semilogy()
             plt.xlim(xlim)
-            plt.savefig('%s/%d.jpg'%(outputDir,i),dpi=200)
+            plt.savefig('%s%d.jpg'%(outputDir,i),dpi=200)
         
 
 

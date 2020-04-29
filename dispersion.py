@@ -52,11 +52,9 @@ class config:
         return model(modelFile, mode=self.surfaceMode,getMode = self.getMode,\
             layerMode =self.layerMode,layerN=self.layerN,isFlat=self.isFlat,R=self.R,flatM=self.flatM,\
             pog=self.pog)
-    def genModel(self,modelFile='',N=100,perD= 0.10,depthMul=2,modelDir = 'models/'):
+    def genModel(self,modelFile='',N=100,perD= 0.10,depthMul=2):
         if len(modelFile)==0:
             modelFile = self.originName
-        if not os.path.exists(modelDir):
-            os.mkdir(modelDir)
         #800.0       11.0       6.13      4.46      740.0     312.0
         model0 = np.loadtxt(modelFile)
         for i in range(N):
@@ -78,20 +76,19 @@ class config:
                         model[j,k]=model[j-1,k]+(1+perD*(2*np.random.rand()-1))*d
                     else:
                         model[j,k]=model[j,k]+(0+perD*(2*np.random.rand()-1))*d
-            np.savetxt('%s/%s%d'%(modelDir,modelFile,i),model)
-
-
+            np.savetxt('%s%d'%(modelFile,i),model)
     def genFvFile(self,modelFile='',fvFile=''):
         if len(modelFile)==0:
             modelFile = self.originName
         if len(fvFile) ==0:
             if not self.isFlat:
-                fvFile='%s_fv'%self.modelFile
+                fvFile='%s_fv'%modelFile
             else:
-                fvFile='%s_fv_flat'%self.modelFile
+                fvFile='%s_fv_flat'%modelFile
             fvFile+= '_'+self.getMode
             fvFile+= '_'+self.pog
-        m = self.getmodel()
+        m = self.getModel(modelFile)
+        print(m.modelFile)
         f,v=m.calDispersion(order=0,calMode=self.calMode,threshold=self.threshold,T=self.T,pog=self.pog)
         f = fv([f,v],'num')
         f.save(fvFile)
@@ -102,7 +99,6 @@ class config:
         self.pog = pog
         for i in iL:
             modelFile = self.getModelFileByIndex(i)
-            print(i)
             self.genFvFile(modelFile)
         self.pog=pog0
     def getModelFileByIndex(self,i):
@@ -111,8 +107,12 @@ class config:
         plt.close()
         for model in modelL:
             z,vp,vs = model.outputZV()
-            plt.plot(vp,z,'b',linewidth=0.3,alpha=0.3)
-            plt.plot(vs,z,'r',linewidth=0.3,alpha=0.3)
+            plt.plot(vp,z,'b',linewidth=0.3,alpha=0.3,label='rand_vp')
+            plt.plot(vs,z,'r',linewidth=0.3,alpha=0.3,label='rand_vp')
+        z,vp,vs = self.getModel().outputZV()
+        #plt.plot(vp,z,'k',linewidth=2,label=self.originName+'_vp')
+        #plt.plot(vs,z,'k',linewidth=2,label=self.originName+'_vs')
+        #plt.legend()
         plt.title(self.originName)
         plt.gca().invert_yaxis() 
         plt.xlabel('v/(m/s)')
@@ -126,12 +126,30 @@ class config:
             FV =fvD[key]
             f = FV.f
             v = FV.v
-            plt.plot(v,f,'b',linewidth=0.3,alpha=0.3)
+            plt.plot(v,f,'b',linewidth=0.3,alpha=0.3,label='rand')
+        originFv = self.getFV(pog=pog)
+        f = FV.f
+        v = FV.v
+        plt.plot(v,f,'r',linewidth=2,label=self.originName)
+        #plt.legend()
         plt.xlabel('v/(m/s)')
         plt.ylabel('f/Hz')
         plt.gca().semilogy()
+        plt.gca().invert_yaxis()
         plt.title(self.originName+pog)
         plt.savefig('%s_fv_%s.jpg'%(self.originName,pog),dpi=300)
+    def getFV(self,index=-1,pog=''):
+        if len(pog)==0:
+            pog=self.pog
+        if index == -1:
+            return fv(self.originName,'file')
+        else:
+            tmpName ='models/ak135%d_fv'%index
+            if self.isFlat:
+                tmpName+='_flat'
+            tmpName+='_%s_%s'%(self.getMode,pog)
+
+            return fv('models/ak135%d_fv_flat_norm_g'%index,'file')
 
         
 
@@ -658,20 +676,35 @@ class corr:
     def setFromFile(self,file):
         mat        = scipy.io.load(file)
         self.setFromDict(mat)
-    def setFromDict(self,mat):
-        self.xx        = mat['xx'] 
-        self.timeL     = mat['timeL']
-        self.dDis      = mat['dDis']
-        self.fs        = mat['fs']
-        self.az        = mat['az']
-        self.dura      = mat['dura']
-        self.M         = mat['M']
-        self.dis       = mat['dis']
-        self.dep       = mat['dep']
-        self.modelFile = str(mat['modelFile'])
-        self.name0     = str(mat['name0'])
-        self.name1     = str(mat['name1'])
-        self.srcSac    = str(mat['srcSac'])
+    def setFromDict(self,mat,isFile =False):
+        if not isFile:
+            self.xx        = mat['xx']
+            self.timeL     = mat['timeL']
+            self.dDis      = mat['dDis']
+            self.fs        = mat['fs']
+            self.az        = mat['az']
+            self.dura      = mat['dura']
+            self.M         = mat['M']
+            self.dis       = mat['dis']
+            self.dep       = mat['dep']
+            self.modelFile = str(mat['modelFile'])
+            self.name0     = str(mat['name0'])
+            self.name1     = str(mat['name1'])
+            self.srcSac    = str(mat['srcSac'])
+        else:
+            self.xx        = mat['xx'][0][0][0]
+            self.timeL     = mat['timeL'][0][0][0]
+            self.dDis      = mat['dDis'][0][0][0]
+            self.fs        = mat['fs'][0][0][0]
+            self.az        = mat['az'][0][0][0] 
+            self.dura      = mat['dura'][0][0][0] 
+            self.M         = mat['M'][0][0][0] 
+            self.dis       = mat['dis'][0][0][0]
+            self.dep       = mat['dep'][0][0][0]
+            self.modelFile = str(mat['modelFile'][0][0][0])
+            self.name0     = str(mat['name0'][0][0][0])
+            self.name1     = str(mat['name1'][0][0][0])
+            self.srcSac    = str(mat['srcSac'][0][0][0])
         return self
     def save(self,fileName):
         sio.savemat(fileName,self.toMat())
@@ -735,7 +768,8 @@ class corr:
             return corrType
     def outputTimeDis(self,FV,T=np.array([5,10,20,30,50,80,100,150,200,250,300]),sigma=2):
         self.T=T
-        f = 1/T
+        f  = 1/T
+        t0 = self.timeL[0]
         dim = [self.timeL.shape[0],T.shape[0]]
         timeDis = np.zeros(dim)
         f = f.reshape([1,-1])
@@ -743,32 +777,85 @@ class corr:
         v = FV(f)
         t = self.dDis/v
         timeDis = np.exp(-((timeL-t)/sigma)**2)
-        return timeDis
+        return timeDis,t0
+    def compareInOut(self,yin,yout):
+        posIn   = yin.argmax(axis=0)/self.fs
+        posOut  = yout.argmax(axis=0)/self.fs
+        dPos    = posOut - posIn
+        return dPos, dPos*0 + self.dDis
 
-def getTimeDis(corrL,fvD,T,sigma=2,maxCount=512,randD=30):
-    maxCount0 = maxCount
-    x    = np.zeros([len(corrL),maxCount,1,1])
-    y    = np.zeros([len(corrL),maxCount,1,len(T)])
-    #maxCount = min(maxCount,corrL[0].xx.shape[0])
-    for i in range(len(corrL)):
-        randIndex = int(randD*np.random.rand())
-        maxCount = min(maxCount0,corrL[i].xx.shape[0])
-        if randIndex>maxCount0-corrL[i].xx.shape[0]:
-            randIndex*=0
-        #if i%100==0:
-        #    print(randIndex)
-        x[i,randIndex:maxCount+randIndex,0,0] = corrL[i].xx[0:maxCount]
-        y[i,randIndex:maxCount+randIndex,0,:] = corrL[i].outputTimeDis(fvD[corrL[i].modelFile],\
-            T=T,sigma=sigma)[0:maxCount]
-    return x,y
+
+class corrL(list):
+    def __init__(self,*argv,**kwargs):
+        super().__init__()
+        if len(argv)>0:
+            for tmp in argv[0]:
+                self.append(tmp)
+            #if isinstance(argv[0],corrL):
+            #    self.x=argv[0].x
+            #    self.y=argv[0].y
+    def plotPickErro(self,yout,T,iL=[],fileName='erro.jpg'):
+        plt.close()
+        N = yout.shape[0]
+        if len(iL) == 0:
+            iL = np.arange(N)
+        dPosL = np.zeros([N,len(T)])
+        fL = np.zeros([N,len(T)])
+        dDisL = np.zeros([N,len(T)])
+        for i in range(N):
+            index   = iL[i]
+            tmpCorr = self[index]
+            tmpYin  = self.y[index,:,0]
+            tmpYOut = yout[i,:,0]
+            dPos, dDis = tmpCorr.compareInOut(tmpYin,tmpYOut)
+            f = (1/T)
+            dPosL[i,:]=dPos
+            fL[i,:]=f
+            dDisL[i,:]=dDis
+            #print(dPos.shape,dDis.shape)
+        bins   = np.arange(-100,100,1)
+        res    = np.zeros([len(T),len(bins)-1])
+        for i in range(len(T)):
+            res[i,:],tmp=np.histogram(dPosL[:,i],bins,density=True)
+        plt.pcolor(bins[:-1],1/T,res)
+        #plt.scatter(dPosL,fL,s=0.5,c = dDisL/2000,alpha=0.3)
+        plt.xlabel('erro/s')
+        plt.ylabel('f/Hz')
+        plt.colorbar()
+        plt.gca().semilogy()
+        plt.gca().invert_yaxis()
+        plt.savefig(fileName,dpi=300)
+    def getTimeDis(self,fvD,T,sigma=2,maxCount=512,randD=30):
+        maxCount0 = maxCount
+        x    = np.zeros([len(self),maxCount,1,1])
+        y    = np.zeros([len(self),maxCount,1,len(T)])
+        t0L   = np.zeros(len(self))
+        randIndexL = np.zeros(len(self))
+        #maxCount = min(maxCount,corrL[0].xx.shape[0])
+        for i in range(len(self)):
+            randIndex = int(randD*np.random.rand())
+            maxCount = min(maxCount0,self[i].xx.shape[0])
+            if randIndex>maxCount0-self[i].xx.shape[0]:
+                randIndex*=0
+            randIndexL[i] = randIndex
+            #if i%100==0:
+            #    print(randIndex)
+            x[i,randIndex:maxCount+randIndex,0,0] = self[i].xx.reshape([-1])[0:maxCount]
+            tmpy,t0=self[i].outputTimeDis(fvD[self[i].modelFile],\
+                T=T,sigma=sigma)
+            y[i,randIndex:maxCount+randIndex,0,:] =tmpy[0:maxCount]
+            t0L[i]=t0+randIndex/self[i].fs
+        self.x          = x
+        self.y          = y
+        self.randIndexL = randIndexL
+        self.t0L        = t0L
+    def copy(self):
+        return corrL(self)
+
+
 
 def getSacTimeL(sac):
     return np.arange(len(sac))*sac.stats['delta']+sac.stats['sac']['b']
-
-
-
-
-
 
 def corrSac(d,sac0,sac1,name0='',name1='',az=np.array([0,0]),dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dis=np.array([0,0]),dep = 10,modelFile='',srcSac=''):
@@ -814,7 +901,7 @@ class fkcorr:
             m.covert2Fk(0)
             m.covert2Fk(1)
             dura = np.random.rand()*10+20
-            depth= int(np.random.rand()*20+10)+(i%10)
+            depth= int(np.random.rand()*20+10)+(i%39)
             print('###################################',depth)
             M=np.array([3e25,0,0,0,0,0,0])
             M[1:] = np.random.rand(6)

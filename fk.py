@@ -24,7 +24,8 @@ class FK:
             os.makedirs(self.resDir)
         exeFiles = ['fk.pl','syn','trav','fk2mt','st_fk','fk','hk']
         for exeFile in exeFiles:
-            os.system('cp %s %s'%(self.orignExe+exeFile,self.exePath))
+            if not os.path.exists(self.exePath+'/'+exeFile):
+                os.system('cp %s %s'%(self.orignExe+exeFile,self.exePath))
 
     def clear(self,clearRes = False):
         os.system('rm -r %s'%self.exePath)
@@ -175,7 +176,7 @@ class FK:
         i=0
         for file in fileNameL:
             #print(file)
-            dura = 10+20*np.random.rand()
+            dura = 10+20*np.random.rand()+i%9
             duraCount = int(dura/delta)
             data = np.zeros(count)
             if i%3==0:
