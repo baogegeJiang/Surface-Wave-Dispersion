@@ -112,6 +112,21 @@ class Dist:
         return name0 == name1
     def loc(self):
         return [self['la'],self['lo'],self['dep']]
+    def distaz(self,loc):
+        if isinstance(loc,list) or isinstance(loc,np.ndarray):
+            dis = DistAz(self['la'],self['lo'],loc[0],loc[1])
+        else:
+            dis = DistAz(self['la'],self['lo'],loc['la'],loc['lo'])
+        return dis
+    def dist(self,loc):
+        dis = self.distaz(loc)
+        return dis.degreesToKilometers(dis.getDelta())
+    def az(self,loc):
+        dis = self.distaz(loc)
+        return dis.getAz()
+    def baz(self,loc):
+        dis = self.distaz(loc)
+        return dis.getBaz()
 
 class Station(Dist):
     def __init__(self,*argv,**kwargs):
@@ -188,6 +203,18 @@ class StationList(list):
         for sta in self:
             line += '%s\n'%sta
         return line 
+    def loc0(self):
+        loc = np.zeros(3)
+        count = 0
+        strL = ['la','lo','dep']
+        for station in self:
+            for i in range(3):
+                tmpStr = strL[i]
+                #print(station[tmpStr],i)
+                if station[tmpStr] !=None:
+                    loc[i] = loc[i] + station[tmpStr]
+        return loc/len(self)
+
         
 class Record(Dist):
     def __init__(self,*argv,**kwargs):
@@ -199,6 +226,8 @@ class Record(Dist):
         self.keysType = 'i        f     f     f      f    f    f    f    f    f    f  S'.split()
         self.keys0    = [0,       None,  None,None,  None,None,None,None,None,None,None,None]
         self.keysName = ['staIndex','pTime','sTime']
+    def select(self,req):
+        return True
 
 
 class Quake(Dist):
@@ -315,6 +344,27 @@ class Quake(Dist):
             if isF != True:
                 sacsL.append(resSacNames)
         return sacsL
+    def select(self,req):
+        if 'time0' in req:
+            if self['time']<req['time0']:
+                return False
+        if 'time1' in req:
+            if self['time']>req['time1']:
+                return False    
+        if 'loc0' in req:
+            dist = self.dist(req['loc0'])
+            if 'maxDist' in req:
+                if dist > req['maxDist']:
+                    return False
+            if 'minDist' in req:
+                if dist < req['minDist']:
+                    return False
+        for record in self.records:
+            if not record.select(req):
+                self.records.pop(self.records.index(record))
+        return True
+
+
 
 
 class QuakeL(list):
@@ -407,8 +457,21 @@ class QuakeL(list):
                         recordKeysIn = record.keyIn()
                         f.write('*%s\n'%recordKeysIn)
                     f.write('%s\n'%record)
-        def selecQuake(self):
-            pass
+    def select(self,req):
+        index = []
+        for i in range(len(self)):
+            if  self[i].select(req):
+                print('find ', self[i])
+                index.append(i)
+        quakes = self.copy()
+        self.clear()
+        for i in index:
+            self.append(quakes[i])
+    def cutSac(self, *argv,**kwargs):
+        for quake in self:
+            quake.cutSac(*argv,**kwargs)
+
+
 
 
 

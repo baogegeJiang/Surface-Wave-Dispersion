@@ -88,15 +88,15 @@ for i in range(2):
     sio.savemat('mat/corrLTest_%d_1_2.mat'%i,{'corrLL':corrMatLTest[i][300000:]})
 corrMatL = []
 corrMatTestL = []
-for i in range(2)
+for i in range(3):
     corrMatL.append( sio.loadmat('mat/corrL_%d_1_1.mat'%i)['corrLL'])
     corrMatTestL.append( sio.loadmat('mat/corrLTest_%d_1_1.mat'%i)['corrLL'])
 corrMat = np.concatenate(corrMatL)
 corrMatTest = np.concatenate(corrMatTestL)
-fvGD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_g'%i,'file')for i in range(1000)}
-fvPD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_p'%i,'file')for i in range(1000)}
-fvGDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_norm_g'%i,'file')for i in range(1000)}
-fvPDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_norm_p'%i,'file')for i in range(1000)}
+fvGD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_new_g'%i,'file')for i in range(1000)}
+fvPD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_new_p'%i,'file')for i in range(1000)}
+fvGDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_new_g'%i,'file')for i in range(1000)}
+fvPDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_new_p'%i,'file')for i in range(1000)}
 disDir = 'disDir/'
 mL = [config.getModel('models/prem%d'%i)for i in range(1000)]
 mLTest = [configTest.getModel('models/prem%d'%i)for i in range(1000)]
@@ -183,9 +183,27 @@ x,y=d.getTimeDis(corrLTmp,fvPDTest,T=tTrain,sigma=2,maxCount=512)
 
 K.set_value(model.optimizer.lr, K.get_value(model.optimizer.lr) * 0.9)
 
-
+import seism
+from obspy import UTCDateTime
 
 stations = seism.StationList('staLstAll')
 stations.write('staLstAllNew')
 quakes   = seism.QuakeL('phaseLstVNM_20200305V1')
 quakes.write('phaseL')
+quakes   = seism.QuakeL('phaseGlobal')
+req ={\
+'loc0':stations.loc0(),\
+'maxDist':2000,\
+'minDist':500,\
+'time0':UTCDateTime(2014,1,1).timestamp,\
+'time1':UTCDateTime(2017,1,1).timestamp\
+}
+quakes.select(req)
+para ={\
+'delta0' :1,
+'freq'   :[1/1e3,1/2]
+}
+quakes.cutSac(stations,bTime=-10,eTime =1024,para=para,byRecord=False)
+
+
+
