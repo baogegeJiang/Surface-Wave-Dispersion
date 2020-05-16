@@ -16,6 +16,7 @@ NoneType = type(None)
 class Dist:
     def __init__(self,*argv,**kwargs):
         self.defaultSet()
+        self.splitKey = ' '
         self.l = [None for i in range(len(self.keys))]
         for i in range(len(self.keys0)):
             self.l[i] = self.keys0[i]
@@ -26,8 +27,13 @@ class Dist:
                 self.keysIn     = kwargs['keysIn'].split()
         for i in range(len(argv)):
             self[self.keysIn[i]] = argv[i]
+        if 'splitKey' in kwargs:
+            self.splitKey = kwargs['splitKey']
+
         if 'line' in kwargs:
             self.setByLine(kwargs['line'])
+        
+        #print(kwargs)
         for key in self.keys:
             if key in kwargs:
                 self[key]=kwargs[key]
@@ -50,8 +56,13 @@ class Dist:
             print('no ',key)
         self.l[self.index(key)] = value
     def setByLine(self, line):
-        tmp = line.split()
-        for i in range(len(tmp)):
+        if self.splitKey != ' ':
+            tmp = line.split(self.splitKey)
+        else:
+            tmp = line.split()
+        #print(tmp,self.splitKey)
+        for i in range(min(len(tmp),len(self.keysIn))):
+            tmp[i] = tmp[i].strip()
             index = self.index(self.keysIn[i])
             if tmp[i]!='-99999':
                 self[self.keysIn[i]] = strType[self.keysType[index][0]](tmp[i])
@@ -63,7 +74,7 @@ class Dist:
             keysOut = argv[0]
         else:
             keysOut =self.keysIn
-        s= ' '
+        s= self.splitKey
         if len(argv)>1:
             s = argv[1]
         for key in keysOut:
@@ -184,7 +195,7 @@ class Record(Dist):
     def defaultSet(self):
         super().defaultSet()
         self.keysIn   = 'staIndex pTime sTime pProb sProb'.split()
-        self.keys     = 'staIndex pTime sTime pProb sProb pCC  sCC  pM   pS   sM   sS staName'.split()
+        self.keys     = 'staIndex pTime sTime pProb sProb pCC  sCC  pM   pS   sM   sS staName no'.split()
         self.keysType = 'i        f     f     f      f    f    f    f    f    f    f  S'.split()
         self.keys0    = [0,       None,  None,None,  None,None,None,None,None,None,None,None]
         self.keysName = ['staIndex','pTime','sTime']
@@ -194,12 +205,15 @@ class Quake(Dist):
     def __init__(self,*argv,**kwargs):
         super().__init__(*argv,**kwargs)
         self.records = []
+        if not isinstance(self['strTime'],NoneType):
+            #print('**',self['strTime'])
+            self['time'] = UTCDateTime(self['strTime']).timestamp
     def defaultSet(self):
         #               quake: 34.718277 105.928949 1388535219.080064 num: 7 index: 0    randID: 1    filename: 16071/1388535216_1.mat -0.300000
         super().defaultSet()
         self.keysIn   = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep '.split()
-        self.keys     = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep stationList'.split()
-        self.keysType = 'S      f        f           f             S     F   S     f     S     f      S     S        f    f   l'.split()
+        self.keys     = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep stationList strTime no'.split()
+        self.keysType = 'S      f        f           f             S     F   S     f     S     f      S     S        f    f   l  S S'.split()
         self.keys0    = [None,  None,     None,      None,         None, None,None,None, None, None,  None,  None,   None,0]
         self.keysName = ['time','la','lo']
     def Append(self,tmp):
@@ -308,13 +322,17 @@ class QuakeL(list):
         super().__init__()
         self.inQuake = {}
         self.inRecord= {}
-        self.splitKeys = ['#','*','q','d']
+        self.keys = ['#','*','q','d',' ',' ']
         if 'quakeKeysIn' in kwargs:
             self.inQuake['keysIn'] = kwargs['quakeKeysIn']
         if 'recordKeysIn' in kwargs:
             self.inRecord['keysIn'] = kwargs['recordKeysIn']
-        if 'splitKeys' in kwargs:
-            self.splitKeys = kwargs['splitKeys']
+        if 'keys' in kwargs:
+            self.keys = kwargs['keys']
+        if 'quakeSplitKey' in kwargs:
+            self.inQuake['splitKey'] = kwargs['quakeSplitKey']
+        if 'recordSplitKey' in kwargs:
+            self.inRecord['splitKey'] = kwargs['recordSplitKey']
         if len(argv)>0:
             if isinstance(argv[0],str):
                 self.read(argv[0],**kwargs)
@@ -325,28 +343,44 @@ class QuakeL(list):
             self.read(kwargs['file'],**kwargs)
 
     def read(self,file,**kwargs):
-        if 'splitKeys' in kwargs:
-            self.splitKeys = kwargs['splitKeys']
+        if 'keys' in kwargs:
+            self.keys = kwargs['keys']
+        if 'quakeSplitKey' in kwargs:
+            self.inQuake['splitKey'] = kwargs['quakeSplitKey']
+        if 'recordSplitKeys' in kwargs:
+            self.inRecord['splitKey'] = kwargs['recordSplitKey']
         with open(file,'r') as f:
             lines = f.readlines()
         for line in lines:
+            line = line.strip()
             if len(line)<0:
                 continue
-            if line[0] == self.splitKeys[0]:
+            if line[0] == '^':
+                self.keys = line[1:].split()
+                if len(self.keys) >=6:
+                    self.inQuake['splitKey']  = self.keys[4]
+                    self.inRecord['splitKey'] = self.keys[5]
+                continue
+            if line[0] in self.keys[0]:
                 self.inQuake['keysIn'] = line[1:]
                 continue
-            if line[0] == self.splitKeys[1]:
+            if line[0] in self.keys[1]:
                 self.inRecord['keysIn'] = line[1:]
                 continue
-            if line[0] == self.splitKeys[2]:
+            if line[0] in self.keys[2]:
                 self.inQuake['line'] = line
                 self.append(Quake(**self.inQuake))
                 continue
-            if line[0] ==self.splitKeys[3]:
+            if line[0] in self.keys[3]:
                 continue
+            #print(line[0],self.keys)
             self.inRecord['line'] = line
             self[-1].Append(Record(**self.inRecord))
     def write(self,file,**kwargs):
+        if 'quakeSplitKey' in kwargs:
+            self.inQuake['splitKey'] = kwargs['quakeSplitKey']
+        if 'recordSplitKeys' in kwargs:
+            self.inRecord['splitKey'] = kwargs['recordSplitKey']
         with open(file,'w+') as f:
             if 'quakeKeysIn' in kwargs:
                 self.inQuake['keysIn'] = kwargs['quakeKeysIn']
@@ -372,7 +406,9 @@ class QuakeL(list):
                     if record.keyIn() != recordKeysIn:
                         recordKeysIn = record.keyIn()
                         f.write('*%s\n'%recordKeysIn)
-                    f.write('%s\n'%record) 
+                    f.write('%s\n'%record)
+        def selecQuake(self):
+            pass
 
 
 
