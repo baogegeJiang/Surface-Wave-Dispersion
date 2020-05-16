@@ -32,6 +32,45 @@ def hitRateNp(yin,yout,maxD=6,K=np):
     hitCount= K.sum(d<maxD)
     return hitCount/count
 
+def inAndOutFunc(config):
+    inputs  = Input(config.inputSize)
+    depth   =  len(config.featureL)
+    convL   = [None for i in range(depth)]
+    dConvL  = [None for i in range(depth)]
+    last    = inputs
+    for i in range(depth):
+        convL[i] = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],strides=(1,1),padding='same',\
+            activation = config.activationL[i])(last)
+        last     = config.poolL[i](pool_size=config.strideL[i],strides=config.strideL[i],padding='same')(convL[i])
+    
+    for i in range(depth-1,-1,-1):
+        dConvL[i]= Conv2DTranspose(config.featureL[i],kernel_size=config.kernelL[i],strides=config.strideL[i],\
+            padding='same',activation=config.activationL[i])(last)
+        last     = concatenate([dConvL[i],convL[i]],axis=3)
+    outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),padding='same',activation='sigmoid')(last)
+
+def inAndOutFuncNew(config):
+    inputs  = Input(config.inputSize)
+    depth   =  len(config.featureL)
+    convL   = [None for i in range(depth)]
+    dConvL  = [None for i in range(depth)]
+    last    = inputs
+    for i in range(depth):
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],strides=(1,1),padding='same',\
+            activation = config.activationL[i])(last)
+        convL[i] = last
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],strides=(1,1),padding='same',\
+            activation = config.activationL[i])(last)
+        last     = config.poolL[i](pool_size=config.strideL[i],strides=config.strideL[i],padding='same')(last)
+    
+    for i in range(depth-1,-1,-1):
+        dConvL[i]= Conv2DTranspose(config.featureL[i],kernel_size=config.kernelL[i],strides=config.strideL[i],\
+            padding='same',activation=config.activationL[i])(last)
+        last     = concatenate([dConvL[i],convL[i]],axis=3)
+    outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),padding='same',activation='sigmoid')(last)
+    return inputs,outputs
+
+
 class fcnConfig:
     def __init__(self):
         '''
@@ -44,9 +83,9 @@ class fcnConfig:
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
         self.lossFunc   = lossFuncSoft
         '''
-        self.inputSize  = [512,1,1]
-        self.outputSize = [512,1,10]
-        self.featureL   = [min(2**(i+1)+30,40) for i in range(8)]
+        self.inputSize  = [512,1,4]
+        self.outputSize = [512,1,19]
+        self.featureL   = [min(2**(i+1)+40,60) for i in range(8)]
         self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1)]
         self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(6,1),(4,1),(2,1)]
         self.activationL= ['relu','relu','relu','relu','relu',\
@@ -54,30 +93,19 @@ class fcnConfig:
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
         AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
         self.lossFunc   = lossFuncSoft(w=2)
-
+        self.inAndOutFunc = inAndOutFuncNew
+    def inAndOut(self):
+        return self.inAndOutFunc(self)
 
 class model(Model):
-    def __init__(self,config=fcnConfig(),metrics=hitRateNp):
+    def __init__(self,config=fcnConfig(),metrics=hitRateNp,channelList=[1,2,3,4]):
+        config.inputSize[-1]=len(channelList)
         self.genM(config)
         self.config = config
         self.metrics = hitRateNp
+        self.channelList = channelList
     def genM(self,config):
-        inputs  = Input(config.inputSize)
-        depth   =  len(config.featureL)
-        convL   = [None for i in range(depth)]
-        dConvL  = [None for i in range(depth)]
-        last    = inputs
-        for i in range(depth):
-            convL[i] = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],strides=(1,1),padding='same',\
-                activation = config.activationL[i])(last)
-            last     = config.poolL[i](pool_size=config.strideL[i],strides=config.strideL[i],padding='same')(convL[i])
-        
-        for i in range(depth-1,-1,-1):
-            dConvL[i]= Conv2DTranspose(config.featureL[i],kernel_size=config.kernelL[i],strides=config.strideL[i],\
-                padding='same',activation=config.activationL[i])(last)
-            last     = concatenate([dConvL[i],convL[i]],axis=3)
-
-        outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),padding='same',activation='sigmoid')(last)
+        inputs, outputs = config.inAndOut()
         #outputs  = Softmax(axis=3)(last)
         super().__init__(inputs=inputs,outputs=outputs)
         self.compile(loss=config.lossFunc, optimizer='Nadam')
@@ -89,7 +117,17 @@ class model(Model):
         super().fit(self.inx(x),y,batch_size=batchSize)
     def inx(self,x):
         #return x/x.max(axis=(1,2,3),keepdims=True)
-        return x/x.std(axis=(1,2,3),keepdims=True)
+        if x.shape[-1]==4:
+            x[:,:,:,:2]/=x[:,:,:,:2].std(axis=(1,2,3),keepdims=True)+1e-12
+            x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
+        if x.shape[-1]==1:
+            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-12
+        if x.shape[-1]==2:
+            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-12
+        if x.shape[-1] > len(self.channelList):
+            return x[:,:,:,self.channelList]
+        else:
+            return x
     def __call__(self,x):
         return super(Model, self).__call__(K.tensor(self.inx(x)))
     def train(self,x,y,N=2000,perN=1000,batchSize=None,xTest='',yTest=''):
@@ -131,7 +169,11 @@ class model(Model):
             plt.close()
             plt.subplot(3,1,1)
             plt.title('%s%d'%(outputDir,i))
-            plt.plot(timeL,self.inx(x[i:i+1,:,0:1,0:1])[0,:,0,0],'b')
+            legend = ['r s','i s',\
+            'r h','i h']
+            for j in range(x.shape[-1]):
+                plt.plot(timeL,self.inx(x[i:i+1,:,0:1,j:j+1])[0,:,0,0]-j,'rbgk'[j],label=legend[j])
+            plt.legend()
             plt.xlim(xlim)
             plt.subplot(3,1,2)
             plt.pcolor(timeL,f,y0[i,:,0,:].transpose())

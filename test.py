@@ -10,24 +10,39 @@ import os
 import mathFunc
 import random
 import fcn
+import h5py
 #是否需要考虑展平变化的影响
 orignExe='/home/jiangyr/program/fk/'
 absPath = '/home/jiangyr/home/Surface-Wave-Dispersion/'
 srcSacDir='/home/jiangyr/Surface-Wave-Dispersion/srcSac/'
 srcSacDirTest='/home/jiangyr/Surface-Wave-Dispersion/srcSacTest/'
+T=np.array([0.5,1,2,5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250,275,300])
+'''
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
-        distance=np.arange(400,1500,100),srcSacNum=100,delta=0.5,layerN=20,\
+        distance=np.arange(400,1800,100),srcSacNum=100,delta=0.5,layerN=20,\
         layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
-        xcorrFunc = mathFunc.xcorrSimple,isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
-        T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
+        xcorrFuncL = [mathFunc.xcorrSimple,mathFunc.xcorrComplex],isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
+        T=T,threshold=0.1,expnt=10,dk=0.1,\
         fok='/k')
 configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
-        distance=np.arange(400,1500,100),srcSacNum=100,delta=0.5,layerN=28,\
+        distance=np.arange(400,1800,100),srcSacNum=100,delta=0.5,layerN=28,\
         layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
-        xcorrFunc = mathFunc.xcorrSimple,isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
-        T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
+        xcorrFuncL = [mathFunc.xcorrSimple,mathFunc.xcorrComplex],isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
+        T=T,threshold=0.1,expnt=10,dk=0.1,\
         fok='/k')
-
+        '''
+config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
+        distance=np.arange(400,3600,200),srcSacNum=100,delta=1,layerN=20,\
+        layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
+        xcorrFuncL = [mathFunc.xcorrSimple,mathFunc.xcorrComplex],isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
+        T=T,threshold=0.02,expnt=10,dk=0.1,\
+        fok='/k')
+configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
+        distance=np.arange(400,1800,100),srcSacNum=100,delta=1,layerN=28,\
+        layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
+        xcorrFuncL = [mathFunc.xcorrSimple,mathFunc.xcorrComplex],isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
+        T=T,threshold=0.02,expnt=10,dk=0.1,\
+        fok='/k')
 
 #config.genModel(N=1000,perD= 0.20,depthMul=2)
 #configTest.genModel(N=1000,perD= 0.20,depthMul=2)
@@ -42,6 +57,8 @@ for i in range(pN):
     pL.append(  multiprocessing.Process(target=config.calFv, args=(range(i,1000,pN),'g')))
     pL.append(  multiprocessing.Process(target=configTest.calFv, args=(range(i,1000,pN),'p')))
     pL.append(  multiprocessing.Process(target=configTest.calFv, args=(range(i,1000,pN),'g')))
+
+
 for p in pL:
     p.start()
 
@@ -51,15 +68,31 @@ for p in pL:
 
 fkL = fk.fkL(20,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/')
 FKCORR  = d.fkcorr(config)
-corrMat = np.array(fkL(1000,FKCORR))
-sio.savemat('mat/corrL.mat',{'corrLL':corrMat})
+corrLL  = fkL(1000,FKCORR)
+corrMatL = [np.array(corrL) for corrL in corrLL]
+
 FKCORRTest  = d.fkcorr(configTest)
-corrMatTest = np.array(fkL(1000,FKCORRTest))
-sio.savemat('mat/corrLTest.mat',{'corrLL':corrMatTest})
-
-
-corrMat = sio.loadmat('mat/corrL.mat')['corrLL']
-corrMatTest = sio.loadmat('mat/corrLTest.mat')['corrLL']
+corrLLTest  = fkL(1000,FKCORRTest)
+corrMatLTest = [np.array(corrLTest) for corrLTest in corrLLTest]
+#corrMatTest = np.array(fkL(1000,FKCORRTest))
+for i in range(2):
+    #with h5py.File('mat/corrLTest_%d_1.mat'%i, "w") as f:
+    #    f['corrLL']=corrMatLTest[i]
+    #with h5py.File('mat/corrL_%d_1.mat'%i, "w") as f:
+    #    f['corrLL']=corrMatL[i]
+    sio.savemat('mat/corrL_%d_1_1.mat'%i,{'corrLL':corrMatL[i][:150000]})
+    sio.savemat('mat/corrL_%d_1_2.mat'%i,{'corrLL':corrMatL[i][150000:300000]})
+    sio.savemat('mat/corrL_%d_1_3.mat'%i,{'corrLL':corrMatL[i][300000:]})
+    sio.savemat('mat/corrLTest_%d_1_1.mat'%i,{'corrLL':corrMatLTest[i][:150000]})
+    sio.savemat('mat/corrLTest_%d_1_2.mat'%i,{'corrLL':corrMatLTest[i][150000:300000]})
+    sio.savemat('mat/corrLTest_%d_1_2.mat'%i,{'corrLL':corrMatLTest[i][300000:]})
+corrMatL = []
+corrMatTestL = []
+for i in range(2)
+    corrMatL.append( sio.loadmat('mat/corrL_%d_1_1.mat'%i)['corrLL'])
+    corrMatTestL.append( sio.loadmat('mat/corrLTest_%d_1_1.mat'%i)['corrLL'])
+corrMat = np.concatenate(corrMatL)
+corrMatTest = np.concatenate(corrMatTestL)
 fvGD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_g'%i,'file')for i in range(1000)}
 fvPD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_norm_p'%i,'file')for i in range(1000)}
 fvGDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_norm_g'%i,'file')for i in range(1000)}
@@ -76,33 +109,44 @@ configTest.plotFVL(fvGDTest,'g')
 if not os.path.exists(disDir):
     os.makedirs(disDir)
 
-i = 0
-corrLP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMat.reshape([-1])])
-corrLTestP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMatTest.reshape([-1])[:20000]])
-corrLG     = corrLP.copy()
-corrLTestG = corrLTestP.copy()
-tTrain =np.array([5,10,20,30,50,80,100,150,200,250])
-corrLP.getTimeDis(fvPD,tTrain,sigma=2,maxCount=512,randD=30)
-corrLG.getTimeDis(fvGD,tTrain,sigma=2,maxCount=512,randD=30)
-corrLTestP.getTimeDis(fvPDTest,tTrain,sigma=2,maxCount=512,randD=30)
-corrLTestG.getTimeDis(fvGDTest,tTrain,sigma=2,maxCount=512,randD=30)
-
-
-
-
-def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/'):
-    tTrain =np.array([5,10,20,30,50,80,100,150,200,250])
+tTrain = np.array([5,10,20,30,50,80,100,150,200,250])
+tTrain = np.array([5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250])
+def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain):
     time0L = corrLTest.t0L
     model.train(corrLTrain.x[:],corrLTrain.y[:],\
         xTest=corrLTest.x[:1000],yTest=corrLTest.y[:1000])
     iL=np.arange(0,1000,50)
     model.show(corrLTest.x[iL],corrLTest.y[iL],\
         time0L=time0L[0:1000:50],delta=0.5,T=tTrain,outputDir=outputDir)
-    corrLTestG.plotPickErro(model.predict(corrLTest.x[:]),tTrain,fileName=outputDir+'erro.jpg')
-modelP = fcn.model()
-modelG = fcn.model()
+    corrLTest.plotPickErro(model.predict(corrLTest.x[:]),tTrain,fileName=outputDir+'erro.jpg')
+
+i = 0
+#corrLP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMat.reshape([-1])])
+#corrLTestP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMatTest.reshape([-1])[:20000]])
+corrLP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=False) for tmpMat in corrLL[0]])
+corrLTestP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=False) for tmpMat in corrLLTest[0][:20000]])
+corrLP1 = d.corrL([ d.corr().setFromDict(tmpMat,isFile=False) for tmpMat in corrLL[1]])
+corrLTestP1 = d.corrL([ d.corr().setFromDict(tmpMat,isFile=False) for tmpMat in corrLLTest[1][:20000]])
+#corrLP = d.corrL(corrLL[1])
+#corrLTestP = d.corrL(corrLLTest[1])
+corrLG     = corrLP.copy()
+corrLTestG = corrLTestP.copy()
+corrLG1     = corrLP1.copy()
+corrLTestG1 = corrLTestP1.copy()
+
+corrLP.getTimeDis(fvPD,tTrain,sigma=2,maxCount=512,randD=30,self1=corrLP1)
+corrLG.getTimeDis(fvGD,tTrain,sigma=2,maxCount=512,randD=30,self1=corrLG1)
+corrLTestP.getTimeDis(fvPDTest,tTrain,sigma=2,maxCount=512,randD=30,self1=corrLTestP1)
+corrLTestG.getTimeDis(fvGDTest,tTrain,sigma=2,maxCount=512,randD=30,self1=corrLTestG1)
+
+
+
+modelP = fcn.model(channelList=[0])
+modelG = fcn.model(channelList=[0])
 trainAndTest(modelP,corrLP,corrLTestP,outputDir='predict/P_')
 trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
+#trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
+#trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 
 
 corrLTestG.plotPickErro(model.predict(corrLTestG.x[:]),tTrain)
@@ -138,3 +182,10 @@ x,y=d.getTimeDis(corrLTmp,fvPDTest,T=tTrain,sigma=2,maxCount=512)
 
 
 K.set_value(model.optimizer.lr, K.get_value(model.optimizer.lr) * 0.9)
+
+
+
+stations = seism.StationList('staLstAll')
+stations.write('staLstAllNew')
+quakes   = seism.QuakeL('phaseLstVNM_20200305V1')
+quakes.write('phaseL')

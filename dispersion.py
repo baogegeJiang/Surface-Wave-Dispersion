@@ -17,7 +17,7 @@ class config:
     def __init__(self,originName='models/prem',srcSacDir='/home/jiangyr/home/Surface-Wave-Dispersion/',\
         distance=np.arange(400,1500,100),srcSacNum=100,delta=0.5,layerN=1000,\
         layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
-        xcorrFunc = xcorrSimple,isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
+        xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k'):
         self.originName = originName
@@ -32,7 +32,7 @@ class config:
         self.nperseg    = nperseg
         self.noverlap   = noverlap
         self.halfDt     = halfDt
-        self.xcorrFunc  = xcorrFunc
+        self.xcorrFuncL  = xcorrFuncL
         self.isFlat     = isFlat
         self.R          = R
         self.flatM      = flatM
@@ -43,9 +43,9 @@ class config:
         self.expnt      = expnt
         self.dk         = dk
         self.fok        = fok
-    def getDisp(self):
-        return disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
-            halfDt=self.halfDt,xcorrFunc = self.xcorrFunc)
+    def getDispL(self):
+        return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
+            halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
     def getModel(self,modelFile=''):
         if len(modelFile)==0:
             modelFile = self.originName
@@ -410,7 +410,12 @@ class model:
             M = np.mat(np.eye(RRud0.shape[0])) - RRud0*RRdu1
         elif self.getMode == 'new':
             #-E1[1][0]**(-1)*E1[1][1]*(A1[1][1])
-            M = self.surfaceL[0].E[1][1][0]+self.surfaceL[0].E[1][1][1]*self.surfaceL[0].A[1][1][1]*RRdu1
+            #-E1[1][0]**(-1)*E1[1][1]*(A1[1][1])
+            M = np.mat(self.surfaceL[0].E[1][1][0])+np.mat(self.surfaceL[0].E[1][1][1])*np.mat(self.surfaceL[0].A[1][1][1])*RRdu1
+            #M = self.surfaceL[0].E[1][1][0]+self.surfaceL[1].E[1][1][1]*self.surfaceL[1].A[1][1][1]*RRdu1
+            MA = np.array(M)
+            MA /= np.abs(MA).std()
+            return np.linalg.det(np.mat(MA))
         return np.linalg.det(M)
     @jit
     def plot(self, omega, dv=0.01):
@@ -433,7 +438,7 @@ class model:
     @jit
     def __call__(self,omega,calMode='fast'):
         return self.calV(omega,order = 0, dv=0.002, DV = 0.008,calMode=calMode,threshold=0.1)
-    def calV(self, omega,order = 0, dv=0.002, DV = 0.008,calMode='norm',threshold=0.1,vStart = -1):
+    def calV(self, omega,order = 0, dv=0.001, DV = 0.008,calMode='norm',threshold=0.05,vStart = -1):
         if calMode =='norm':
             v, k ,det = self.calList(omega, dv)
             iL, detL = getDetec(-np.abs(det), minValue=-0.1, minDelta=int(DV /dv))
@@ -455,41 +460,53 @@ class model:
         '''
         return v0,det0
     @jit
-    def calVFast(self,omega,order=0,dv=0.01,DV=0.008,threshold=0.1,vStart=-1):
+    def calVFast(self,omega,order=0,dv=0.01,DV=0.008,threshold=0.05,vStart=-1):
         if self.getMode == 'new':
-            v = self.layerL[1].vs/2+1e-8
+            v = 2.7
         else:
             v = self.layerL[1].vs+1e-8
+
         #print(vStart,v)
         if vStart >0:
-            v  = max(self.layerL[1].vs+1e-8,vStart - 0.02)
-            dv = 0.001
+            v  = vStart - 0.02
+            dv = 0.0005
         v0 = v
-        det0=10
+        det0=1e9
         for i in range(100000):
             v1 = i*dv+v
+            if np.abs(v1-self.layerL[1].vs)<0.005:
+                continue
             #print(v1)
             det1 =np.abs(self.get(omega/v1, omega))
+
+            #if i%10:
+            #    #print(v1, det1)
             if  det1<threshold and det1 < det0:
                 v0 = v1
                 det0 = det1
             if det0 <threshold and det1>det0:
+                print(v0,2*np.pi/omega,det0)
                 return v0, det0
+        return 2,0.1
     @jit
     def calDispersion(self, order=0,calMode='norm',threshold=0.1,T= np.arange(1,100,5).astype(np.float),pog='p'):
         f = 1/T
         omega = 2*np.pi*f
         v = omega*0
+        v00=3
         for i in range(omega.size):
             if pog =='p':
-                V   =np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold))[0]
-                v[i]=np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold,vStart=V))[0]
+                V   =np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold,vStart=v00-0.2))[0]
+                v00=V
+                v[i]=np.abs(self.calV(omega[i],order=order,calMode=calMode,threshold=threshold,vStart=v00))[0]
             elif pog =='g' :
-                omega0 = omega[i]*0.9
-                omega1 = omega[i]*1.1
-                V=np.abs(self.calV(omega1,order=order,calMode=calMode,threshold=threshold))[0]
-                v0=np.abs(self.calV(omega0,order=order,calMode=calMode,threshold=threshold,vStart=V))[0]
-                v1=np.abs(self.calV(omega1,order=order,calMode=calMode,threshold=threshold,vStart=V))[0]
+                omega0 = omega[i]*0.98
+                omega1 = omega[i]*1.02
+                V=np.abs(self.calV(omega1,order=order,calMode=calMode,threshold=threshold,vStart=v00-0.2))[0]
+                v00 = V
+                v0=np.abs(self.calV(omega0,order=order,calMode=calMode,threshold=threshold,vStart=v00))[0]
+                v1=np.abs(self.calV(omega1,order=order,calMode=calMode,threshold=threshold,vStart=v00))[0]
+                
                 dOmega = omega1 - omega0
                 dK     = omega1/v1 - omega0/v0
                 v[i] = dOmega/dK 
@@ -778,11 +795,12 @@ class corr:
         t = self.dDis/v
         timeDis = np.exp(-((timeL-t)/sigma)**2)
         return timeDis,t0
-    def compareInOut(self,yin,yout):
+    def compareInOut(self,yin,yout,t0):
         posIn   = yin.argmax(axis=0)/self.fs
         posOut  = yout.argmax(axis=0)/self.fs
         dPos    = posOut - posIn
-        return dPos, dPos*0 + self.dDis
+        dPosR   = dPos/(posIn+t0+1e-8)
+        return dPos, dPosR, dPos*0 + self.dDis
 
 
 class corrL(list):
@@ -800,6 +818,7 @@ class corrL(list):
         if len(iL) == 0:
             iL = np.arange(N)
         dPosL = np.zeros([N,len(T)])
+        dPosRL = np.zeros([N,len(T)])
         fL = np.zeros([N,len(T)])
         dDisL = np.zeros([N,len(T)])
         for i in range(N):
@@ -807,13 +826,15 @@ class corrL(list):
             tmpCorr = self[index]
             tmpYin  = self.y[index,:,0]
             tmpYOut = yout[i,:,0]
-            dPos, dDis = tmpCorr.compareInOut(tmpYin,tmpYOut)
+            t0      = self.t0L[index]
+            dPos, dPosR,dDis = tmpCorr.compareInOut(tmpYin,tmpYOut,t0)
             f = (1/T)
-            dPosL[i,:]=dPos
+            dPosL[i,:]  = dPos
+            dPosRL[i,:] = dPosR
             fL[i,:]=f
             dDisL[i,:]=dDis
             #print(dPos.shape,dDis.shape)
-        bins   = np.arange(-100,100,1)
+        bins   = np.arange(-100,100,1)/4
         res    = np.zeros([len(T),len(bins)-1])
         for i in range(len(T)):
             res[i,:],tmp=np.histogram(dPosL[:,i],bins,density=True)
@@ -824,10 +845,31 @@ class corrL(list):
         plt.colorbar()
         plt.gca().semilogy()
         plt.gca().invert_yaxis()
+        plt.title(fileName[:-4])
         plt.savefig(fileName,dpi=300)
-    def getTimeDis(self,fvD,T,sigma=2,maxCount=512,randD=30):
+        plt.close()
+
+        bins   = np.arange(-100,100,1)/400
+        res    = np.zeros([len(T),len(bins)-1])
+        for i in range(len(T)):
+            res[i,:],tmp=np.histogram(dPosRL[:,i],bins,density=True)
+        plt.pcolor(bins[:-1],1/T,res)
+        #plt.scatter(dPosL,fL,s=0.5,c = dDisL/2000,alpha=0.3)
+        plt.xlabel('erro Ratio /(s/s)')
+        plt.ylabel('f/Hz')
+        plt.colorbar()
+        plt.gca().semilogy()
+        plt.gca().invert_yaxis()
+        plt.title(fileName[:-4]+'_R')
+        plt.savefig(fileName[:-4]+'_R.jpg',dpi=300)
+        plt.close()
+
+    def getTimeDis(self,fvD,T,sigma=2,maxCount=512,randD=30,self1=[]):
         maxCount0 = maxCount
-        x    = np.zeros([len(self),maxCount,1,1])
+        if len(self1)==0:
+            x    = np.zeros([len(self),maxCount,1,2])
+        else:
+            x    = np.zeros([len(self),maxCount,1,4])
         y    = np.zeros([len(self),maxCount,1,len(T)])
         t0L   = np.zeros(len(self))
         randIndexL = np.zeros(len(self))
@@ -840,7 +882,11 @@ class corrL(list):
             randIndexL[i] = randIndex
             #if i%100==0:
             #    print(randIndex)
-            x[i,randIndex:maxCount+randIndex,0,0] = self[i].xx.reshape([-1])[0:maxCount]
+            x[i,randIndex:maxCount+randIndex,0,0] = np.real(self[i].xx.reshape([-1])[0:maxCount])
+            x[i,randIndex:maxCount+randIndex,0,1] = np.imag(self[i].xx.reshape([-1])[0:maxCount])
+            if len(self1)>0:
+                x[i,randIndex:maxCount+randIndex,0,2] = np.real(self1[i].xx.reshape([-1])[0:maxCount])
+                x[i,randIndex:maxCount+randIndex,0,3] = np.imag(self1[i].xx.reshape([-1])[0:maxCount])
             tmpy,t0=self[i].outputTimeDis(fvD[self[i].modelFile],\
                 T=T,sigma=sigma)
             y[i,randIndex:maxCount+randIndex,0,:] =tmpy[0:maxCount]
@@ -848,7 +894,7 @@ class corrL(list):
         self.x          = x
         self.y          = y
         self.randIndexL = randIndexL
-        self.t0L        = t0L
+        self.t0L        = t0L 
     def copy(self):
         return corrL(self)
 
@@ -894,6 +940,12 @@ class fkcorr:
     def __init__(self,config=config()):
         self.config = config
     def __call__(self,index,iL,f,corrLL):
+        dispL = self.config.getDispL()
+        for disp in dispL:
+            corrLL[index]+=[[]]
+            #print('add',len(corrLL),len(corrLL[index]))
+        #print(len(corrLL[index]))
+        #return []
         for i in iL:
             modelFile = '%s%d'%(self.config.originName,i)
             #print(modelFile)
@@ -907,11 +959,13 @@ class fkcorr:
             M[1:] = np.random.rand(6)
             srcSacIndex = int(np.random.rand()*self.config.srcSacNum*0.999)
             rise = 0.1+0.3*np.random.rand()
-            sacsL, sacNamesL= f.test(distance=self.config.distance+np.round((np.random.rand(self.config.distance.size)-0.5)*80),\
+            sacsL, sacNamesL= f.test(distance=self.config.distance+np.round((np.random.rand(self.config.distance.size)-0.5)*160),\
                 modelFile=modelFile,fok=self.config.fok,dt=self.config.delta,depth=depth,expnt=self.config.expnt,dura=dura,\
                 dk=self.config.dk,azimuth=[0,int(6*(np.random.rand()-0.5))],M=M,rise=rise,srcSac=getSourceSacName(srcSacIndex,self.config.delta,\
                     srcSacDir = self.config.srcSacDir),isFlat=self.config.isFlat)
-            corrLL[index] += corrSacsL(self.config.getDisp(),sacsL,sacNamesL,modelFile=modelFile,\
+            #print(len(corrLL[index]),len(dispL) )
+            for j in range(len(dispL)):
+                corrLL[index][j] += corrSacsL(dispL[j],sacsL,sacNamesL,modelFile=modelFile,\
                 srcSac=getSourceSacName(srcSacIndex,self.config.delta,srcSacDir = self.config.srcSacDir))
 
 '''

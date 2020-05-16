@@ -181,12 +181,12 @@ class FK:
             data = np.zeros(count)
             if i%3==0:
                 data[:duraCount] += 1
-                data[:duraCount] += np.random.rand()*0.2*np.random.rand(duraCount)
+                data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)
             if i%3 ==1:
                 mid = int(duraCount/2)
                 data[:mid] = np.arange(mid)
                 data[mid:2*mid] = np.arange(mid-1,-1,-1)
-                data[:duraCount] += np.random.rand()*0.2*np.random.rand(duraCount)*mid
+                data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*mid
             if i%3 ==2:                
                 rise = 0.1+0.3*np.random.rand()
                 mid = int(duraCount/2)
@@ -194,7 +194,7 @@ class FK:
                 data[:duraCount] += i0
                 data[:i0] = np.arange(i0)
                 data[duraCount-i0:duraCount] = np.arange(i0-1,-1,-1)
-                data[:duraCount] += np.random.rand()*0.2*np.random.rand(duraCount)*i0
+                data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*i0
             data/=data.sum()
             i+=1
             self.genSourceSac(file,data,delta=delta)
@@ -213,7 +213,7 @@ class fkL(list) :
         manager = Manager()
         resLL  = manager.list()
         for i in range(fkN):
-            resLL. append([])
+            resLL. append(manager.list())
         for i in range(fkN):
             pL.append(Process(\
                 target=target,\
@@ -226,8 +226,10 @@ class fkL(list) :
             print('######',i)
             i+=1
         resL = []
+        resL = [[] for ii in range(len(resLL[0]))]
         for tmp in resLL:
-            resL += tmp
+            for ii in range(len(resLL[0])):
+                resL[ii] += tmp[ii]
         return resL
     def clear(self):
         for f in self:

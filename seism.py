@@ -1,9 +1,15 @@
 import obspy 
 import numpy as np
+from distaz import DistAz
+from dataLib import filePath
+from obspy import UTCDateTime,read
+from distaz import DistAz
+import os 
+fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
 nickStrL='1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM'
-strType={'S':str,'f':float,'i':int, 'l':tolist}
+strType={'S':str,'f':float,'F':float,'i':int, 'l':tolist}
 NoneType = type(None)
 
 
@@ -11,8 +17,13 @@ class Dist:
     def __init__(self,*argv,**kwargs):
         self.defaultSet()
         self.l = [None for i in range(len(self.keys))]
+        for i in range(len(self.keys0)):
+            self.l[i] = self.keys0[i]
         if 'keysIn' in kwargs :
-            self.keysIn     = kwargs['keysIn']
+            if isinstance(kwargs['keysIn'],list):
+                self.keysIn     = kwargs['keysIn']
+            else:
+                self.keysIn     = kwargs['keysIn'].split()
         for i in range(len(argv)):
             self[self.keysIn[i]] = argv[i]
         if 'line' in kwargs:
@@ -24,6 +35,8 @@ class Dist:
         self.keys = ['']
         self.keysType =['s']
         self.keysIn = ['']
+        self.keysName = ['']
+        self.keys0 = [None]
     def index(self,key):
         if key in self.keys:
             return self.keys.index(key)
@@ -40,16 +53,27 @@ class Dist:
         tmp = line.split()
         for i in range(len(tmp)):
             index = self.index(self.keysIn[i])
-            self[self.keysIn[i]] = strType[self.keysType[index][0]](tmp[i])
+            if tmp[i]!='-99999':
+                self[self.keysIn[i]] = strType[self.keysType[index][0]](tmp[i])
+            else:
+                self[self.keysIn[i]] = None
     def __str__(self,*argv):
         line = ''
         if len(argv)>0:
             keysOut = argv[0]
         else:
             keysOut =self.keysIn
+        s= ' '
+        if len(argv)>1:
+            s = argv[1]
         for key in keysOut:
-            line += str(self[key])+' '
-        return line
+            if not isinstance(self[key],type(None)):
+                line += str(self[key])+s
+            else:
+                line += '-99999 '
+        return line[:-1]
+    def __repr__(self):
+        return self.__str__()
     def __iter__(self):
         return self.keys
     def copy(self):
@@ -58,26 +82,56 @@ class Dist:
         for key in self:
             inD[key]  = self[key]
         return type(self)(**inD)
+    def keyIn(self):
+        keyIn = ''
+        for tmp in self.keysIn:
+            keyIn += tmp  + ' ' 
+        return keyIn[:-1]
+    def name(self,s =' '):
+        return self.__str__(self.keysName,s)
+    def __eq__(self,name1):
+        name0 = ''
+        if  isinstance(name1,type(self)):
+            self1 = name1
+            name1 = ''
+            for key in self1.keysName:
+                name1 = self1.name()
+        for key in self.keysName:
+            name0 = self.name()
+        return name0 == name1
+    def loc(self):
+        return [self['la'],self['lo'],self['dep']]
 
 class Station(Dist):
     def __init__(self,*argv,**kwargs):
         super().__init__(*argv,**kwargs)
         if isinstance(self['compBase'],NoneType): 
             self['comp'] = [self['compBase']+s for s in 'ENZ' ]
-        if isinstance( self['index'],NoneType) and isinstance( self['nickName'],NoneType):
+        #print(self['index'])
+        if isinstance( self['index'],NoneType)==False and isinstance( self['nickName'],NoneType):
             self['nickName'] = self.getNickName(self['index'])
     def defaultSet(self):
+        super().defaultSet()
         self.keysIn   = 'net sta compBase lo la erroLo erroLa dep erroDep '.split()
         self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc'.split()
         self.keysType ='S S S f f f f f f S l f F'.split()
+        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP]
+        self.keysName = ['net','sta']
     def getNickName(self, index):
         nickName = ''
         N      = len(nickStrL)
         for i in range(4):
             tmp    = index%N
-            nickName += nickStrL[N]
+            nickName += nickStrL[tmp]
             count  = int(index/N)
         return nickName
+    def getFileNames(self, time0,time1=None):
+        if isinstance(time1, NoneType):
+            time1 = time0+86400
+        return [self['nameFunc'](self['net'],self['sta'], \
+            self['compBase']+comp, time0,time1) for comp in 'ENZ']
+    def baseSacName(self,resDir=''):
+        return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in 'ENZ']
 
 
 class StationList(list):
@@ -87,34 +141,37 @@ class StationList(list):
             for sta in argv[0]:
                 self.append(sta)
         if isinstance(argv[0],str):
-            self.setByFile(argv[0])
-    def setByFile(self,fileName):
+            self.read(argv[0])
+    def read(self,fileName):
         self.header = []
         with open(fileName,'r') as staFile:
             lines = staFile.readlines()
         inD = {}
         if lines[0][0]=='#':
-            keys = lines[0][1:].split()
+            keys = lines[0][1:]
             lines= lines[1:]
             inD['keysIn'] = keys
         index=0
         for line in lines:
             inD['line'] = line
-            inD['index']=index
+            inD['index']= index
             self.append(Station(**inD))
             index+=1
         self.inD = inD
-    def save(self,fileName,*argv):
+    def write(self,fileName,*argv):
         with open(fileName,'w+') as f:
-            keysOut =''
+            keysOut = ''
             if 'keysIn' in self.inD:
-                keysOut = '#'+self.inD['keysIn']+'\n'
+                keysOut = self.inD['keysIn']
             if len(argv)>0:
-                keysOut = '#'+argv[0]+'\n'
+                keysOut = argv[0]
+            if len(keysOut) >0:
+                keysOut = keysOut.split()
+                for sta in self:
+                    sta.keysIn = keysOut
+            keysOut = '#' + self[0].keyIn()+'\n'
             f.write(keysOut)
-            for sta in self:
-                f.write(sta)
-                f.write('\n')
+            f.write(self.__str__())
     def __str__(self):
         line =''
         for sta in self:
@@ -123,140 +180,302 @@ class StationList(list):
         
 class Record(Dist):
     def __init__(self,*argv,**kwargs):
-        super().__init__()
+        super().__init__(*argv,**kwargs)
     def defaultSet(self):
+        super().defaultSet()
         self.keysIn   = 'staIndex pTime sTime pProb sProb'.split()
-        self.keys     = 'staIndex pTime sTime pProb sProb pCC sCC pM pS sM sS staName'.split()
-        self.keysType = 'f        f     f     f      f    f   f   f  f  f  f  S'.split()
+        self.keys     = 'staIndex pTime sTime pProb sProb pCC  sCC  pM   pS   sM   sS staName'.split()
+        self.keysType = 'i        f     f     f      f    f    f    f    f    f    f  S'.split()
+        self.keys0    = [0,       None,  None,None,  None,None,None,None,None,None,None,None]
+        self.keysName = ['staIndex','pTime','sTime']
 
-class Record(list):
-    '''
-    the basic class 'Record' used for single station's P and S record
-    it's based on python's default list
-    [staIndex pTime sTime]
-    we can setByLine
-    we provide a way to copy
-    '''
-    def __init__(self,staIndex=-1, pTime=-1, sTime=-1, pProb=100, sProb=100):
-        super(Record, self).__init__()
-        self.append(staIndex)
-        self.append(pTime)
-        self.append(sTime)
-        self.append(pProb)
-        self.append(sProb)
-    def __repr__(self):
-        return self.summary()
-    def summary(self):
-        Summary='%d'%self[0]
-        for i in range(1,len(self)):
-            Summary=Summary+" %f "%self[i]
-        Summary=Summary+'\n'
-        return Summary
-    def copy(self):
-        return Record(self[0],self[1],self[2])
-    def getStaIndex(self):
-        return self[0]
-    def staIndex(self):
-        return self.getStaIndex()
-    def pTime(self):
-        return self[1]
-    def sTime(self):
-        return self[2]
-    def pProb(self):
-        return self[-2]
-    def sProb(self):
-        return self[-1]
-    def setByLine(self,line):
-        if isinstance(line,str):
-            line=line.split()
-        self[0]=int(line[0])
-        for i in range(1,len(line)):
-            self[i]=float(line[i])
-        return self
-    def set(self,line,mode='byLine'):
-        return self.setByLine(line)
-    def clear(self):
-            self[1]=.0
-            self[2]=.0
-    def selectByReq(self,req={},waveform=None,oTime=None):
-        '''
-        maxDT oTime
-        minSNR tLBe tlAf
-        minP(modelL, predictLongData)
-        '''
-        if 'minRatio' in req and oTime!=None:
-            if self.pTime()>0 and self.sTime()>0:
-                if (self.sTime()-oTime)/(self.pTime()-oTime)<req['minRatio']:
-                    self.clear()
-        if 'maxDT' in req and 'oTime' in req:
-            if self.pTime()>0 and \
-                self.pTime()-req['oTime']>req['maxDT']:
-                self.clear()
-        if isinstance(waveform,dict):
-            if 'minSNR' in req :
-                if self.calSNR(req,waveform)< req['minSNR']:
-                    self.clear()
-            if 'minP' in req or 'minS' in req :
-                p, s = self.calPS(req, waveform)
-                if 'minP' in req:
-                    if p < req['minP']:
-                        self[1] = 0.
-                if 'minS' in req:
-                    if s < req['minS']:
-                        self[2] = 0.
-        return self
-    def calSNR(self,req={},waveform=None):
-        '''
-        tLBe tlAf
-        '''
-        if not isinstance(waveform,dict):
-            return -1
-        staIndexNew=np.where(waveform['staIndexL'][0]==self.getStaIndex())[0]
-        i0=np.where(waveform['indexL'][0]==0)[0]
-        delta=waveform['deltaL'][0][staIndexNew]
-        if delta==0:
-            return -1
-        iN=waveform['indexL'][0].size
-        tLBe=[-15,-5]
-        tLAf=[0,10]
-        if 'tLBe' in req:
-            tlBe=tLBe
-        if 'tLAf' in req:
-            tLAf=tLAf
-        isBe=int(max(0,i0+int(tLBe[0]/delta)))
-        ieBe=int(i0+int(tLBe[1]/delta))
-        isAf=int(i0+int(tLAf[0]/delta))
-        ieAf=int(min(iN-1,i0+int(tLAf[1]/delta)))
-        aBe=np.abs(waveform['pWaveform'][staIndexNew,isBe:ieBe]).max()
-        aAf=np.abs(waveform['pWaveform'][staIndexNew,isAf:ieAf]).max()
-        return aAf/(aBe+1e-9)
-    def calPS(self,req={},waveform=None):
-        '''
-        tLBe tlAf
-        '''
-        if not isinstance(waveform,dict):
-            return -1
-        staIndexNew=np.where(waveform['staIndexL'][0]==self.getStaIndex())[0][0]
-        i0=np.where(waveform['indexL'][0]==0)[0][0]
-        delta=waveform['deltaL'][0][staIndexNew]
-        if delta==0:
-            return -1
-        p = -1
-        s = -1
-        if self.pProb()<=1:
-            p = self.pProb()
-            s = self.sProb()
-            return p, s
-        if 'modelL' in req and 'predictLongData' in req:
-            modelL = req['modelL']
-            if self.pTime()>100 and 'minP' in req:
-                predictLongData = req['predictLongData']
-                y = predictLongData(modelL[0], waveform['pWaveform'][staIndexNew])
-                #print(y.shape)
-                p = y[int(i0-5):int(i0+5)].max()
-            if self.sTime()>100 and 'minS' in req:
-                predictLongData = req['predictLongData']
-                y = predictLongData(modelL[1], waveform['sWaveform'][staIndexNew])
-                s = y[int(i0-5):int(i0+5)].max()
-        #print(p,s)
-        return p, s
+
+class Quake(Dist):
+    def __init__(self,*argv,**kwargs):
+        super().__init__(*argv,**kwargs)
+        self.records = []
+    def defaultSet(self):
+        #               quake: 34.718277 105.928949 1388535219.080064 num: 7 index: 0    randID: 1    filename: 16071/1388535216_1.mat -0.300000
+        super().defaultSet()
+        self.keysIn   = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep '.split()
+        self.keys     = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep stationList'.split()
+        self.keysType = 'S      f        f           f             S     F   S     f     S     f      S     S        f    f   l'.split()
+        self.keys0    = [None,  None,     None,      None,         None, None,None,None, None, None,  None,  None,   None,0]
+        self.keysName = ['time','la','lo']
+    def Append(self,tmp):
+        if isinstance(tmp,Record):
+            self.records.append(tmp)
+        else:
+            print('please pass in Record type')
+    def calCover(self,stationList=[],maxDT=None):
+        if len(stationList) ==0:
+            stationList = self['stationList']
+        if isinstance(stationList,type(None)) or len(stationList)==0:
+            print('no stationInfo')
+            return None
+        coverL=np.zeros(360)
+        for record in self.records:
+            if record['pTime']==0 and record['sTime']==0:
+                continue
+            if maxDT!=None:
+                if record['pTime']-self['time']>maxDT:
+                    continue
+            staIndex= int(record['index'])
+            la      = stationList[staIndex]['la']
+            lo      = stationList[staIndex]['lo']
+            dep     = stationList[staIndex]['dep']/1e3
+            delta,dk,Az = self.calDelta(la,lo,dep)
+            R=int(60/(1+dk/200)+60)
+            N=((int(Az)+np.arange(-R,R))%360).astype(np.int64)
+            coverL[N]=coverL[N]+1
+        L=((np.arange(360)+180)%360).astype(np.int64)
+        coverL=np.sign(coverL)*np.sign(coverL[L])*(coverL+coverL[L])
+        coverRate=np.sign(coverL).sum()/360
+        return coverRate
+    def calDelta(self,la,lo,dep=0):
+        D=DistAz(la,lo,self['la'],self['lo'])
+        delta=D.getDelta()
+        dk=D.degreesToKilometers(delta)
+        dk=np.linalg.norm(np.array([dk,self['dep']+dep]))
+        Az=D.getAz()
+        return delta,dk,Az
+    def num(self):
+        return len(self.records)
+    def __str__(self, *argv):
+        self['num'] = self.num()
+        return super().__str__(*argv )
+    def staIndexs(self):
+        return [record['staIndex'] for record in self.records] 
+    def cutSac(self, stations,bTime=-100,eTime=3000,resDir = 'eventSac/',para={},byRecord=True):
+        time0  = self['time'] + bTime
+        time1  = self['time'] + eTime
+        tmpDir = '%s/%s/'%(resDir,self.name(s='_'))
+        if not os.path.exists(tmpDir):
+            os.makedirs(tmpDir)
+        staIndexs = self.staIndexs()
+        for staIndex in range(len(stations)):
+            station = stations[staIndex]
+            if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
+                continue
+            if staIndex in staIndexs:
+                record = self.records[staIndexs.index(staIndex)]
+            resSacNames = station.baseSacName(tmpDir)
+            sacsL = station.getFileNames(time0,time1+2)
+            for i in range(3):
+                sacs = sacsL[i]
+                if len(sacs) ==0:
+                    continue
+                data = mergeSacByName(sacs, **para)
+                if isinstance(data,NoneType):
+                    continue
+                #print(data)
+                if data.stats.starttime<=time0 and data.stats.endtime >= time1:
+                    data=data.slice(starttime=UTCDateTime(time0), \
+                        endtime=UTCDateTime(time1), nearest_sample=True)
+                    #print('#',data.stats.starttime.timestamp-time0)
+                    #print('##',data.stats.endtime.timestamp -time1)
+                    #print('###',time0 -time1)
+                    #print('####',data.stats.starttime.timestamp-data.stats.endtime.timestamp)
+                    decMul=-1
+                    if 'delta0' in para:
+                        decMul = para['delta0']/data.stats.delta
+                        if np.abs(int(decMul)-decMul)<0.001:
+                            decMul=decMul
+                            print('decMul: ',decMul)
+                        else:
+                            decMul=-1
+                    data=adjust(data,decMul=decMul,stloc=station.loc(),eloc = self.loc(),\
+                        kzTime=self['time'],sta = station['sta'],net=station['net'])
+                    data.write(resSacNames[i],format='SAC')
+        return None
+    def getSacFiles(self,stations,resDir = 'eventSac/'):
+        sacsL = []
+        for record in self.record:
+            station = stations[record['staIndex']]
+            resSacNames = station.baseSacName(resDir)
+            isF = True
+            for resSacName in resSacNames:
+                if not os.path.exist(resSacName):
+                    isF = False
+                    break
+            if isF != True:
+                sacsL.append(resSacNames)
+        return sacsL
+
+
+class QuakeL(list):
+    def __init__(self,*argv,**kwargs):
+        super().__init__()
+        self.inQuake = {}
+        self.inRecord= {}
+        self.splitKeys = ['#','*','q','d']
+        if 'quakeKeysIn' in kwargs:
+            self.inQuake['keysIn'] = kwargs['quakeKeysIn']
+        if 'recordKeysIn' in kwargs:
+            self.inRecord['keysIn'] = kwargs['recordKeysIn']
+        if 'splitKeys' in kwargs:
+            self.splitKeys = kwargs['splitKeys']
+        if len(argv)>0:
+            if isinstance(argv[0],str):
+                self.read(argv[0],**kwargs)
+            elif isinstance(argv[0],list):
+                for tmp in argv[0]:
+                    self.append(tmp)
+        if 'file' in kwargs:
+            self.read(kwargs['file'],**kwargs)
+
+    def read(self,file,**kwargs):
+        if 'splitKeys' in kwargs:
+            self.splitKeys = kwargs['splitKeys']
+        with open(file,'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            if len(line)<0:
+                continue
+            if line[0] == self.splitKeys[0]:
+                self.inQuake['keysIn'] = line[1:]
+                continue
+            if line[0] == self.splitKeys[1]:
+                self.inRecord['keysIn'] = line[1:]
+                continue
+            if line[0] == self.splitKeys[2]:
+                self.inQuake['line'] = line
+                self.append(Quake(**self.inQuake))
+                continue
+            if line[0] ==self.splitKeys[3]:
+                continue
+            self.inRecord['line'] = line
+            self[-1].Append(Record(**self.inRecord))
+    def write(self,file,**kwargs):
+        with open(file,'w+') as f:
+            if 'quakeKeysIn' in kwargs:
+                self.inQuake['keysIn'] = kwargs['quakeKeysIn']
+            if 'recordKeysIn' in kwargs:
+                self.inRecord['keysIn'] = kwargs['recordKeysIn']              
+            if 'keysIn' in self.inQuake:
+                tmp = self.inQuake['keysIn'].split()
+                for quake in self:
+                    self.keysIn = tmp
+            if 'keysIn' in self.inRecord:
+                tmp = self.inRecord['keysIn'].split()
+                for quake in self:
+                    for record in quake.records:
+                        record.keysIn =  tmp
+            quakeKeysIn = ''
+            recordKeysIn= ''
+            for quake in self:
+                if quake.keyIn() != quakeKeysIn:
+                    quakeKeysIn = quake.keyIn()
+                    f.write('#%s\n'%quakeKeysIn)
+                f.write('%s\n'%quake)
+                for record in quake.records:
+                    if record.keyIn() != recordKeysIn:
+                        recordKeysIn = record.keyIn()
+                        f.write('*%s\n'%recordKeysIn)
+                    f.write('%s\n'%record) 
+
+
+
+def adjust(data,stloc=None,kzTime=None,tmpFile='test.sac',decMul=-1,eloc=None,chn=None,sta=None,\
+    net=None,o=None):
+    if decMul>1 :
+        data.decimate(int(decMul),no_filter=True)
+    if data.stats['_format']!='SAC':
+        data.write(tmpFile,format='SAC')
+        data=obspy.read(tmpFile)[0]
+        #print(data)
+    if stloc!=None:
+        data.stats['sac']['stla']=stloc[0]
+        data.stats['sac']['stlo']=stloc[1]
+        data.stats['sac']['stel']=stloc[2]
+    if eloc!=None:
+        data.stats['sac']['evla']=eloc[0]
+        data.stats['sac']['evlo']=eloc[1]
+        data.stats['sac']['evdp']=eloc[2]
+        dis=DistAz(eloc[0],eloc[1],stloc[0],stloc[1])
+        dist=dis.degreesToKilometers(dis.getDelta())
+        data.stats['sac']['dist']=dist
+        data.stats['sac']['az']=dis.getAz()
+        data.stats['sac']['baz']=dis.getBaz()
+        data.stats['sac']['gcarc']=dis.getDelta()
+    if chn!=None:
+        data.stats['sac']['kcmpnm']=chn
+        data.stats['channel']=chn
+    if sta!=None and net !=None:
+        data.stats['sac']['kstnm']=sta
+        data.stats['station']=sta
+    if o!=None:
+        data.stats['sac']['o']=o
+    if kzTime!=None:
+        kzTime=UTCDateTime(kzTime)
+        dTime=kzTime.timestamp-(data.stats.starttime.timestamp-data.stats['sac']['b'])
+        data.stats['sac']['nzyear']=int(kzTime.year)
+        data.stats['sac']['nzjday']=int(kzTime.julday)
+        data.stats['sac']['nzhour']=int(kzTime.hour)
+        data.stats['sac']['nzmin']=int(kzTime.minute)
+        data.stats['sac']['nzsec']=int(kzTime.second)
+        data.stats['sac']['nzmsec']=int(kzTime.microsecond/1000)
+        data.stats['sac']['b']-=dTime
+        #data.stats['sac']['b']=(int(data.stats['sac']['b']/data.stats.delta)*data.stats.delta)
+        data.stats['sac']['e']=data.stats['sac']['b']+(data.data.size-1)*data.stats.delta
+        data.write(tmpFile)
+        data=obspy.read(tmpFile)[0]
+        print(data.stats['sac']['b'],data.stats['sac']['e'])
+    return data
+
+
+
+def mergeSacByName(sacFileNames, **kwargs):
+    para ={\
+    'delta0'    :0.02,\
+    'freq'      :[-1, -1],\
+    'filterName':'bandpass',\
+    'corners'   :2,\
+    'zerophase' :True,\
+    'maxA'      :1e5,\
+    }
+    count       =0
+    sacM        = None
+    tmpSacL     =None
+    para.update(kwargs)
+    for sacFileName in sacFileNames:
+        try:
+            tmpSacs=obspy.read(sacFileName, debug_headers=True,dtype=np.float32)
+            if para['freq'][0] > 0:
+                tmpSacs.detrend('demean').detrend('linear').filter(para['filterName'],\
+                        freqmin=para['freq'][0], freqmax=para['freq'][1], \
+                        corners=para['corners'], zerophase=para['zerophase'])
+            else:
+                tmpSacs.detrend('demean').detrend('linear')
+        except:
+            print('wrong read sac')
+            continue
+        else:
+            if tmpSacL==None:
+                tmpSacL=tmpSacs
+            else:
+                tmpSacL+=tmpSacs
+    if tmpSacL!=None and len(tmpSacL)>0:
+        ID=tmpSacL[0].id
+        for tmp in tmpSacL:
+            try:
+                tmp.id=ID
+            except:
+                pass
+            else:
+                pass
+        try:
+            sacM=tmpSacL.merge(fill_value=0)[0]
+            std=sacM.std()
+            if std>para['maxA']:
+                print('#####too many noise std : %f#####'%std)
+                sacM=None
+            else:
+                pass
+        except:
+            print('wrong merge')
+            sacM=None
+        else:
+            pass
+            
+    return sacM
