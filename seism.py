@@ -156,8 +156,8 @@ class Station(Dist):
             time1 = time0+86400
         return [self['nameFunc'](self['net'],self['sta'], \
             self['compBase']+comp, time0,time1) for comp in 'ENZ']
-    def baseSacName(self,resDir=''):
-        return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in 'ENZ']
+    def baseSacName(self,resDir='',strL='ENZ'):
+        return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in strL]
 
 
 class StationList(list):
@@ -331,18 +331,21 @@ class Quake(Dist):
                         kzTime=self['time'],sta = station['sta'],net=station['net'])
                     data.write(resSacNames[i],format='SAC')
         return None
-    def getSacFiles(self,stations,resDir = 'eventSac/'):
+    def getSacFiles(self,stations,isRead=False,resDir = 'eventSac/',strL='ENZ'):
         sacsL = []
         for record in self.record:
             station = stations[record['staIndex']]
-            resSacNames = station.baseSacName(resDir)
+            resSacNames = station.baseSacName(resDir,strL=strL)
             isF = True
             for resSacName in resSacNames:
                 if not os.path.exist(resSacName):
                     isF = False
                     break
-            if isF != True:
-                sacsL.append(resSacNames)
+            if isF == True:
+                if isRead:
+                    sacsL.append([ obspy.read(resSacName)[0] for resSacName in resSacNames])
+                else:
+                    sacsL.append(resSacNames)
         return sacsL
     def select(self,req):
         if 'time0' in req:

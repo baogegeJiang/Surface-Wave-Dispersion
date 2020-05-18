@@ -83,15 +83,16 @@ class fcnConfig:
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
         self.lossFunc   = lossFuncSoft
         '''
-        self.inputSize  = [512,1,4]
-        self.outputSize = [512,1,19]
-        self.featureL   = [min(2**(i+1)+40,60) for i in range(8)]
-        self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1)]
-        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(6,1),(4,1),(2,1)]
+        self.inputSize  = [1536,1,4]
+        self.outputSize = [1536,1,19]
+        self.featureL   = [min(2**(i+1)+40,80) for i in range(9)]
+        self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(3,1)]
+        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(6,1),(4,1),(2,1),(3,1)]
         self.activationL= ['relu','relu','relu','relu','relu',\
-        'relu','relu','relu']
+        'relu','relu','relu','relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
-        AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
+        AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
+        AveragePooling2D]
         self.lossFunc   = lossFuncSoft(w=2)
         self.inAndOutFunc = inAndOutFuncNew
     def inAndOut(self):
@@ -114,7 +115,7 @@ class model(Model):
         x = self.inx(x)
         return super().predict(x)
     def fit(self,x,y,batchSize=None):
-        super().fit(self.inx(x),y,batch_size=batchSize)
+        super().fit(self.inx(x) ,y,batch_size=batchSize)
     def inx(self,x):
         #return x/x.max(axis=(1,2,3),keepdims=True)
         if x.shape[-1]==4:
@@ -189,6 +190,17 @@ class model(Model):
             plt.gca().semilogy()
             plt.xlim(xlim)
             plt.savefig('%s%d.jpg'%(outputDir,i),dpi=200)
+    def predictRaw(self,x):
+        yShape = list(x.shape)
+        yShape[-1] = self.config.outputSize[-1]
+        y = np.zeros(yShape)
+        d = self.config.outputSize[0]
+        halfD = int(self.config.outputSize[0]/2)
+        iL = list(range(0,x.shape[0]-d,halfD))
+        iL.append(x.shape[0]-d)
+        for i0 in iL:
+            y[:,i0:(i0+d)] = x.predict(x[:,i0:(i0+d)])
+        return y
         
 
 
