@@ -32,17 +32,17 @@ configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         fok='/k')
         '''
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
-        distance=np.arange(500,7200,600),srcSacNum=100,delta=1,layerN=20,\
+        distance=np.arange(500,10000,600),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=300,\
         xcorrFuncL = [mathFunc.xcorrSimple],isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
-        T=T,threshold=0.02,expnt=11,dk=0.1,\
-        fok='/k',order=0)
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
+        fok='/k',order=0,minSNR=10)
 configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         distance=np.arange(500,7200,600),srcSacNum=100,delta=1,layerN=28,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=300,\
         xcorrFuncL = [mathFunc.xcorrSimple],isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
-        T=T,threshold=0.02,expnt=11,dk=0.1,\
-        fok='/k',order=0)
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
+        fok='/k',order=0,minSNR=10)
 
 #config.genModel(N=1000,perD= 0.20,depthMul=2)
 #configTest.genModel(N=1000,perD= 0.20,depthMul=2)
@@ -67,7 +67,7 @@ for p in pL:
 
 fkL = fk.fkL(20,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/')
 FKCORR  = d.fkcorr(config)
-corrLL  = fkL(1000,FKCORR)
+corrLL  = fkL(20,FKCORR)
 
 
 FKCORRTest  = d.fkcorr(configTest)
@@ -144,8 +144,8 @@ corrLP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMa
 corrLTestP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMatTest[0][:20000]])
 corrLP = d.corrL(config.modelCorr(1000))
 corrLTestP = d.corrL(configTest.modelCorr(200))
-corrLP = d.corrL( [ d.corr().setFromFile(corr.toMat())for corr in corrLP])
-corrLTestP = d.corrL( [ d.corr().setFromFile(corr.toMat())for corr in corrLTestP])
+corrLP = d.corrL( [ d.corr().setFromDict(corr.toMat())for corr in corrLP])
+corrLTestP = d.corrL( [ d.corr().setFromDict(corr.toMat())for corr in corrLTestP])
 #corrLP = d.corrL(corrLP)
 #corrLTestP = d.corrL(corrLTestP)
 corrLP = corrLL[0]
@@ -159,10 +159,9 @@ corrLTestG = corrLTestP.copy()
 #corrLG1     = corrLP1.copy()
 #corrLTestG1 = corrLTestP1.copy()
 
-corrLP.getTimeDis(fvPD,tTrain,sigma=3,maxCount=1536,randD=30,byT=True)#,self1=corrLP1)
-#,self1=corrLG1)
-corrLTestP.getTimeDis(fvPDTest,tTrain,sigma=3,maxCount=1536,randD=30,byT=True)#,self1=corrLTestP1)
-corrLG.getTimeDis(fvGD,tTrain,sigma=3,maxCount=1536,randD=30)
+corrLP.getTimeDis(fvPD,tTrain,sigma=3,maxCount=1536,randD=30,byT=False)#,self1=corrLP1)
+corrLTestP.getTimeDis(fvPDTest,tTrain,sigma=3,maxCount=1536,randD=30,byT=False)#,self1=corrLTestP1)
+corrLG.getTimeDis(fvGD,tTrain,sigma=3,maxCount=1536,randD=30)#,self1=corrLG1)
 corrLTestG.getTimeDis(fvGDTest,tTrain,sigma=3,maxCount=1536,randD=30)#,self1=corrLTestG1)
 
 
@@ -176,7 +175,12 @@ trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 #trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
 #trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 
-
+corrLQuakeP = d.corrL(config.quakeCorr(quakes[:],stations,'',\
+    minDist=1000,maxDist=3500))
+corrLQuakeP.getTimeDis(fvPD,tTrain,sigma=3,maxCount=1536,randD=30,byT=False)
+iL=np.arange(0,10000,500)
+modelP.show(corrLQuakeP.x[iL],corrLQuakeP.y[iL],\
+        time0L=corrLQuakeP.t0L[0:10000:500],delta=1.0,T=tTrain,outputDir='predict/R_P')
 #corrLTestG.plotPickErro(model.predict(corrLTestG.x[:]),tTrain)
 '''
 model.train(x[:100000],yG[:100000],xTest=xTest[:1000],yTest=yTestG[:1000])
@@ -222,17 +226,22 @@ stations = seism.StationList('stations/staLstNMV2SelectNew')
 quakes   = seism.QuakeL('phaseGlobal')
 req ={\
 'loc0':stations.loc0(),\
-'maxDist':7200,\
+'maxDist':10000,\
 'minDist':500,\
 'time0':UTCDateTime(2014,1,1).timestamp,\
 'time1':UTCDateTime(2017,1,1).timestamp\
 }
 quakes.select(req)
-para ={\
+quakes.write('phaseL')
+quakes   = seism.QuakeL('phaseL')
+
+para={\
 'delta0' :1,
-'freq'   :[0.8/1e3,0.8/2]
+'freq'   :[0.8/1e3,0.8/2],
+'corners':4,
+'maxA':1e10,
 }
-quakes.cutSac(stations,bTime=-10,eTime =2048,para=para,byRecord=False)
+quakes.cutSac(stations,bTime=-10,eTime =4096,para=para,byRecord=False)
 
 
 

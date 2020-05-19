@@ -20,7 +20,7 @@ class config:
         layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
         xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
-        fok='/k',gpdcExe=gpdcExe,order=0):
+        fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5):
         self.originName = originName
         self.srcSacDir  = srcSacDir
         self.distance   = distance
@@ -46,6 +46,7 @@ class config:
         self.fok        = fok
         self.gpdcExe    = gpdcExe
         self.order =order
+        self.minSNR=minSNR
     def getDispL(self):
         return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
             halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
@@ -154,13 +155,16 @@ class config:
         tmpName+='_%s_%s_%d'%(self.getMode,pog,self.order)
         print(tmpName)
         return fv(tmpName,'file')
-    def quakeCorr(self,quakes,stations,disp):
+    def quakeCorr(self,quakes,stations,byRecord=True,minDist=-1,maxDist=-1):
         corrL = []
         disp = self.getDispL()[0]
         for quake in quakes:
-            sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE')
-            sacNamesL = quake.getSacFiles(stations,isRead = True,strL='ZNE')
-            corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName)
+            sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
+                byRecord=byRecord,minDist=minDist,maxDist=maxDist)
+            sacNamesL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
+                byRecord=byRecord,minDist=minDist,maxDist=maxDist)
+            corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName,minSNR=self.minSNR,\
+                srcSac=quake.name(s='_'))
         return corrL
     def modelCorr(self,count=1000):
         corrL = []
@@ -170,7 +174,7 @@ class config:
             sacsLFile = modelFile+'sacFile'
             sacsL,sacNamesL,srcSac = self.getSacFile(sacsLFile)
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=modelFile\
-                ,srcSac=srcSac)
+                ,srcSac=srcSac,minSNR=self.minSNR)
         return corrL
     def getSacFile(self,sacFile):
         sacsL = []
@@ -651,7 +655,7 @@ class disp:
         maxI = np.argmax(data)
         i0 = max(maxI - self.halfN,0)
         i1 = min(maxI + self.halfN,data.shape[0])
-        print(i0,i1)
+        #print(i0,i1)
         return data[i0:i1],i0,i1
     @jit
     def xcorr(self,data0, data1,isCut=True):
@@ -1004,27 +1008,51 @@ def corrSac(d,sac0,sac1,name0='',name1='',az=np.array([0,0]),dura=0,M=np.array([
     return corr
 
 def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
-    ,dep = 10,modelFile='',srcSac=''):
+    ,dep = 10,modelFile='',srcSac='',minSNR=5):
     corrL = []
     N = len(sacsL)
+    distL = np.zeros(N)
+    SNR = np.zeros(N)
     for i in range(N):
-        for j in range(i):
+        distL[i] = sacsL[i][0].stats['sac']['dist']
+        pos = np.abs(sacsL[i][0].data).argmax()
+        dTime = pos*sacsL[i][0].stats['sac']['delta']+sacsL[i][0].stats['sac']['b']
+        print(pos,dTime,distL[i])
+        if dTime<distL[i]/5:
+            SNR[i] = 0
+            continue
+        SNR[i] = np.abs(sacsL[i][0].data[pos])/sacsL[i][0].data[:int(pos/4)].std()
+    #print(SNR)
+    print((SNR>minSNR).sum(),minSNR)
+    iL = distL.argsort()
+    for ii in range(N):
+        for jj in range(ii):
+            i = iL[ii]
+            j = iL[jj]
             sac0    = sacsL[i][0]
             sac1    = sacsL[j][0]
             name0   = sacNamesL[i][0]
             name1   = sacNamesL[j][0]
+            if SNR[i]<minSNR:
+                continue
+            if SNR[j]<minSNR:
+                continue
             #print(sac0,sac1,sac0.stats['sac']['az'],sac1.stats['sac']['az'])
             az   = np.array([sac0.stats['sac']['az'],sac1.stats['sac']['az']])
             if np.abs((az[0]-az[1])%360)>5:
                 continue
 
             dis  = np.array([sac0.stats['sac']['dist'],sac1.stats['sac']['dist']])
+            '''
             if dis.min()<1000:
                 continue
-            if dis.max()>6000:
+            if np.abs(dis[0]-dis[1])<300:
+                continue
+            if dis.max()>3500:
                 continue
             if np.abs(dis[0]-dis[1])>4000:
                 continue
+                '''
             #tmp = corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile)
             #print(np.imag(tmp.xx))
             corrL.append(corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile,srcSac))
@@ -1034,10 +1062,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
 class fkcorr:
     def __init__(self,config=config()):
         self.config = config
-    def __call__(self,index,iL,f,corrLL):
-        dispL = self.config.getDispL()
-        for disp in dispL:
-            corrLL[index]+=[[]]
+    def __call__(self,index,iL,f):
             #print('add',len(corrLL),len(corrLL[index]))
         #print(len(corrLL[index]))
         #return []
@@ -1066,9 +1091,6 @@ class fkcorr:
                     ff.write('\n')
                 ff.write('#')
                 ff.write('%s'%(getSourceSacName(srcSacIndex,self.config.delta,srcSacDir = self.config.srcSacDir)))
-            for j in range(len(dispL)):
-                corrLL[index][j] += corrSacsL(dispL[j],sacsL,sacNamesL,modelFile=modelFile,\
-                srcSac=getSourceSacName(srcSacIndex,self.config.delta,srcSacDir = self.config.srcSacDir))
 
 
 

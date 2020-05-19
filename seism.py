@@ -288,17 +288,19 @@ class Quake(Dist):
         self['num'] = self.num()
         return super().__str__(*argv )
     def staIndexs(self):
-        return [record['staIndex'] for record in self.records] 
+        return [record['staIndex'] for record in self.records]
+    def resDir(self,resDir):
+        return '%s/%s/'%(resDir,self.name(s='_'))
     def cutSac(self, stations,bTime=-100,eTime=3000,resDir = 'eventSac/',para={},byRecord=True):
         time0  = self['time'] + bTime
         time1  = self['time'] + eTime
-        tmpDir = '%s/%s/'%(resDir,self.name(s='_'))
+        tmpDir = self.resDir(resDir)
         if not os.path.exists(tmpDir):
             os.makedirs(tmpDir)
         staIndexs = self.staIndexs()
         for staIndex in range(len(stations)):
             station = stations[staIndex]
-            if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
+            if len(staIndexs) >0 and staIndex not in staIndexs and byRecord:
                 continue
             if staIndex in staIndexs:
                 record = self.records[staIndexs.index(staIndex)]
@@ -331,14 +333,27 @@ class Quake(Dist):
                         kzTime=self['time'],sta = station['sta'],net=station['net'])
                     data.write(resSacNames[i],format='SAC')
         return None
-    def getSacFiles(self,stations,isRead=False,resDir = 'eventSac/',strL='ENZ'):
+    def getSacFiles(self,stations,isRead=False,resDir = 'eventSac/',strL='ENZ',\
+        byRecord=True,maxDist=-1,minDist=-1):
         sacsL = []
-        for record in self.record:
-            station = stations[record['staIndex']]
-            resSacNames = station.baseSacName(resDir,strL=strL)
+        staIndexs = self.staIndexs()
+        tmpDir = self.resDir(resDir)
+        for staIndex in range(len(stations)):
+            station = stations[staIndex]
+            if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
+                continue
+            if staIndex in staIndexs:
+                record = self.records[staIndexs.index(staIndex)]
+            if maxDist>0 and self.dist(station)>maxDist:
+                continue
+            if minDist>0 and self.dist(station)>minDist:
+                continue
+            #station = stations[record['staIndex']]
+            resSacNames = station.baseSacName(tmpDir,strL=strL)
+            #print(resSacNames)
             isF = True
             for resSacName in resSacNames:
-                if not os.path.exist(resSacName):
+                if not os.path.exists(resSacName):
                     isF = False
                     break
             if isF == True:
@@ -394,7 +409,14 @@ class QuakeL(list):
                     self.append(tmp)
         if 'file' in kwargs:
             self.read(kwargs['file'],**kwargs)
-
+    def __getitem__(self,index):
+        quakesNew = super().__getitem__(index)
+        if isinstance(index,slice):
+            quakesNew = QuakeL(quakesNew)
+            quakesNew.inQuake = self.inQuake
+            quakesNew.inRecord = self.inRecord
+            quakesNew.kyes = self.keys
+        return quakesNew
     def read(self,file,**kwargs):
         if 'keys' in kwargs:
             self.keys = kwargs['keys']
@@ -435,6 +457,10 @@ class QuakeL(list):
         if 'recordSplitKeys' in kwargs:
             self.inRecord['splitKey'] = kwargs['recordSplitKey']
         with open(file,'w+') as f:
+            f.write('^')
+            for key in self.keys:
+                f.write(key+' ')
+            f.write('\n')
             if 'quakeKeysIn' in kwargs:
                 self.inQuake['keysIn'] = kwargs['quakeKeysIn']
             if 'recordKeysIn' in kwargs:

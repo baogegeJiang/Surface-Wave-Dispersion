@@ -210,14 +210,10 @@ class fkL(list) :
     def __call__(self,num,target):
         fkN = len(self)
         pL = []
-        manager = Manager()
-        resLL  = manager.list()
-        for i in range(fkN):
-            resLL. append(manager.list())
         for i in range(fkN):
             pL.append(Process(\
                 target=target,\
-                args=(i,range(i,num,fkN),self[i],resLL) 
+                args=(i,range(i,num,fkN),self[i]) 
                 )\
             )
             pL[-1].start()
@@ -225,12 +221,6 @@ class fkL(list) :
             p.join()
             print('######',i)
             i+=1
-        resL = []
-        resL = [[] for ii in range(len(resLL[0]))]
-        for tmp in resLL:
-            for ii in range(len(resLL[0])):
-                resL[ii] += tmp[ii]
-        return resL
     def clear(self):
         for f in self:
             f.clear()

@@ -85,15 +85,15 @@ class fcnConfig:
         '''
         self.inputSize  = [1536,1,4]
         self.outputSize = [1536,1,19]
-        self.featureL   = [min(2**(i+1)+40,80) for i in range(9)]
+        self.featureL   = [min(2**(i+1)+40,100) for i in range(9)]
         self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(3,1)]
-        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(6,1),(4,1),(2,1),(3,1)]
+        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(6,1),(4,1),(3,1),(3,1)]
         self.activationL= ['relu','relu','relu','relu','relu',\
         'relu','relu','relu','relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
         AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
         AveragePooling2D]
-        self.lossFunc   = lossFuncSoft(w=2)
+        self.lossFunc   = lossFuncSoft(w=6)
         self.inAndOutFunc = inAndOutFuncNew
     def inAndOut(self):
         return self.inAndOutFunc(self)
@@ -154,7 +154,7 @@ class model(Model):
                     print('test loss: ',loss,' metrics: ',metrics)
             if i%3==0:
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.9)
-    def show(self, x, y0,outputDir='predict/',time0L='',delta=0.5,T=np.arange(10)):
+    def show(self, x, y0,outputDir='predict/',time0L='',delta=0.5,T=np.arange(10),fileStr=''):
         y = self.predict(x)
         f = 1/T
         count = x.shape[1]
@@ -189,7 +189,7 @@ class model(Model):
             plt.xlabel('t/s')
             plt.gca().semilogy()
             plt.xlim(xlim)
-            plt.savefig('%s%d.jpg'%(outputDir,i),dpi=200)
+            plt.savefig('%s%s%d.jpg'%(outputDir,fileStr,i),dpi=200)
     def predictRaw(self,x):
         yShape = list(x.shape)
         yShape[-1] = self.config.outputSize[-1]
