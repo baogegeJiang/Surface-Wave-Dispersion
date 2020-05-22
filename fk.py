@@ -176,18 +176,18 @@ class FK:
         i=0
         for file in fileNameL:
             #print(file)
-            dura = 10+20*np.random.rand()+i%9
+            dura = 8+40*np.random.rand()+i%12
             duraCount = int(dura/delta)
             data = np.zeros(count)
-            if i%3==0:
+            if i%4==0:
                 data[:duraCount] += 1
                 data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)
-            if i%3 ==1:
+            if i%4 ==1:
                 mid = int(duraCount/2)
                 data[:mid] = np.arange(mid)
                 data[mid:2*mid] = np.arange(mid-1,-1,-1)
                 data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*mid
-            if i%3 ==2:                
+            if i%4 ==2:                
                 rise = 0.1+0.3*np.random.rand()
                 mid = int(duraCount/2)
                 i0 = int(duraCount*rise)
@@ -195,6 +195,12 @@ class FK:
                 data[:i0] = np.arange(i0)
                 data[duraCount-i0:duraCount] = np.arange(i0-1,-1,-1)
                 data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*i0
+            if i%4 ==3:
+                T  = np.random.rand()*60+5
+                T0 = np.random.rand()*2*np.pi
+                data[:duraCount] = np.sin(np.arange(duraCount)/T*2*np.pi+T0)+1
+                data[:duraCount] += (np.random.rand(duraCount)-0.5)*0.1
+                data[:duraCount] *= np.random.rand(duraCount)+4
             data/=data.sum()
             i+=1
             self.genSourceSac(file,data,delta=delta)

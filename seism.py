@@ -5,6 +5,7 @@ from dataLib import filePath
 from obspy import UTCDateTime,read
 from distaz import DistAz
 import os 
+import random
 fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
@@ -86,13 +87,16 @@ class Dist:
     def __repr__(self):
         return self.__str__()
     def __iter__(self):
-        return self.keys
+        return self.keys.__iter__()
     def copy(self):
         type(self)()
         inD = {'keysIn':self.keys}
         for key in self:
             inD[key]  = self[key]
-        return type(self)(**inD)
+        selfNew=type(self)(**inD)
+        selfNew.keysIn = self.keysIn.copy()
+        selfNew.splitKey = self.splitKey
+        return selfNew
     def keyIn(self):
         keyIn = ''
         for tmp in self.keysIn:
@@ -381,6 +385,10 @@ class Quake(Dist):
             if not record.select(req):
                 self.records.pop(self.records.index(record))
         return True
+    def __setitem__(self,key,value):
+        super().__setitem__(key,value)
+        if key == 'time' :
+            self['strTime'] = UTCDateTime(self['time']).strftime('%Y:%m:%d %H:%M:%S.%f')
 
 
 
@@ -499,6 +507,19 @@ class QuakeL(list):
     def cutSac(self, *argv,**kwargs):
         for quake in self:
             quake.cutSac(*argv,**kwargs)
+    def copy(self):
+        quakes = QuakeL()
+        for quake in self:
+            quakes.append(quake.copy())
+        quakes.keys         = self.keys.copy()
+        quakes.inQuake      = self.inQuake.copy()
+        quakes.inRecord     = self.inRecord.copy()
+        return quakes
+    def getSacFiles(self,*argv,**kwargs):
+        sacsL = []
+        for quake in self:
+            sacsL+=quake.getSacFiles(*argv,**kwargs)
+        return sacsL
 
 
 
@@ -607,3 +628,25 @@ def mergeSacByName(sacFileNames, **kwargs):
             pass
             
     return sacM
+
+class Noises:
+    def __init__(self,noisesL,mul=0.2):
+        for noises in noisesL:
+            for noise in noises:
+                noise.data /= noise.data.std()
+        self.noisesL  = noisesL
+        self.mul = mul
+    def __call__(self,sacsL,channelL=[0,1,2]):
+        for sacs in sacsL:
+            for i in channelL:
+                self.noiseSac(sacs[i],i)
+    def noiseSac(self,sac,channelIndex=0):
+        noise = random.choice(self.noisesL)[channelIndex]
+        nSize = noise.data.size
+        sSize = sac.data.size
+        randI = np.random.rand()*nSize
+        randL = (np.arange(sSize)+randI)%nSize
+        sac.data+=np.random.rand()*noise.data[randL.astype(np.int)]\
+        *self.mul*sac.data.std()
+
+

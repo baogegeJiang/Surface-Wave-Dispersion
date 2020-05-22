@@ -32,6 +32,13 @@ def xcorrSimple(a,b):
         c[i]=tc
     return c
 
+def xcorrFrom0(a,b):
+    la = a.size
+    lb = b.size
+    x =  signal.correlate(a,b,'full')
+    return x[lb-1:]
+
+
 @jit
 def xcorrComplex(a,b):
     a = fftpack.hilbert(a)*1j+a
@@ -59,7 +66,7 @@ def xcorrEqual(a,b):
         if ii1!=lb:
             tb=(b[0:ii1]*b[0:ii1]).sum()
         c[i]=tc/np.sqrt(tb)
-    return c
+    return signal.correlate()
 
 def corrNP(a,b):
     a=a.astype(nptype)

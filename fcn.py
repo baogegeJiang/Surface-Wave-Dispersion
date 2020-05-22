@@ -1,6 +1,7 @@
 from keras.models import  Model
 from keras.layers import Input, Softmax, MaxPooling2D,\
-  AveragePooling2D,Conv2D,Conv2DTranspose,concatenate,Softmax
+  AveragePooling2D,Conv2D,Conv2DTranspose,concatenate,Softmax,\
+  Dropout
 import numpy as np
 from keras import backend as K
 from matplotlib import pyplot as plt
@@ -56,13 +57,16 @@ def inAndOutFuncNew(config):
     dConvL  = [None for i in range(depth)]
     last    = inputs
     for i in range(depth):
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],strides=(1,1),padding='same',\
-            activation = config.activationL[i])(last)
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',activation = config.activationL[i])(last)
         convL[i] = last
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],strides=(1,1),padding='same',\
-            activation = config.activationL[i])(last)
-        last     = config.poolL[i](pool_size=config.strideL[i],strides=config.strideL[i],padding='same')(last)
-    
+        if i in config.dropOutL:
+            ii   = config.dropOutL.index(i)
+            last =  Dropout(config.dropOutRateL(ii))(last)
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',activation = config.activationL[i])(last)
+        last     = config.poolL[i](pool_size=config.strideL[i],\
+            strides=config.strideL[i],padding='same')(last)
     for i in range(depth-1,-1,-1):
         dConvL[i]= Conv2DTranspose(config.featureL[i],kernel_size=config.kernelL[i],strides=config.strideL[i],\
             padding='same',activation=config.activationL[i])(last)
@@ -83,17 +87,19 @@ class fcnConfig:
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
         self.lossFunc   = lossFuncSoft
         '''
-        self.inputSize  = [1536,1,4]
-        self.outputSize = [1536,1,19]
-        self.featureL   = [min(2**(i+1)+40,100) for i in range(9)]
-        self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(2,1),(3,1)]
-        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(6,1),(4,1),(3,1),(3,1)]
+        self.inputSize  = [4096,1,4]
+        self.outputSize = [4096,1,19]
+        self.featureL   = [min(2**(i+1)+60,100) for i in range(8)]
+        self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(4,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
+        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(8,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
+        self.dropOutL   = [2,4,6]
+        self.dropOutRateL=[0.2,0.1,0.2]
         self.activationL= ['relu','relu','relu','relu','relu',\
-        'relu','relu','relu','relu']
+        'relu','relu','relu','relu','relu','relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
         AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
-        AveragePooling2D]
-        self.lossFunc   = lossFuncSoft(w=6)
+        MaxPooling2D,AveragePooling2D,MaxPooling2D]
+        self.lossFunc   = lossFuncSoft(w=10)
         self.inAndOutFunc = inAndOutFuncNew
     def inAndOut(self):
         return self.inAndOutFunc(self)
@@ -118,20 +124,27 @@ class model(Model):
         super().fit(self.inx(x) ,y,batch_size=batchSize)
     def inx(self,x):
         #return x/x.max(axis=(1,2,3),keepdims=True)
+        '''
         if x.shape[-1]==4:
             x[:,:,:,:2]/=x[:,:,:,:2].std(axis=(1,2,3),keepdims=True)+1e-12
             x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
+        '''
+        if x.shape[-1]==4:
+            x/=x.std(axis=(1,2),keepdims=True)+1e-12
+            #x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
         if x.shape[-1]==1:
-            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-12
+            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-19
         if x.shape[-1]==2:
-            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-12
+            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-19
         if x.shape[-1] > len(self.channelList):
             return x[:,:,:,self.channelList]
         else:
             return x
     def __call__(self,x):
         return super(Model, self).__call__(K.tensor(self.inx(x)))
-    def train(self,x,y,N=2000,perN=1000,batchSize=None,xTest='',yTest=''):
+    def train(self,x,y,N=2000,perN=200,batchSize=None,xTest='',yTest='',k0 = -1):
+        if k0>1:
+            K.set_value(self.optimizer.lr, k0)
         indexL = range(x.shape[0])
         #print(indexL)
         lossMin =100
