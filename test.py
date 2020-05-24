@@ -11,7 +11,7 @@ import mathFunc
 import random
 import fcn
 import h5py
-impor seism
+import seism
 #是否需要考虑展平变化的影响
 orignExe='/home/jiangyr/program/fk/'
 absPath = '/home/jiangyr/home/Surface-Wave-Dispersion/'
@@ -72,40 +72,14 @@ for p in pL:
 
 fkL = fk.fkL(20,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/')
 FKCORR  = d.fkcorr(config)
-corrLL  = fkL(200,FKCORR)
-
-
+corrLL  = fkL(1000,FKCORR)
 FKCORRTest  = d.fkcorr(configTest)
-corrLLTest  = fkL(20,FKCORRTest)
-corrMatL = [np.array(corrL) for corrL in corrLL]
-sio.savemat('mat/corrL_2048_1.mat',{'corrLL':corrMatL[0]})
-corrMatL = 0
-corrMatLTest = [np.array(corrLTest) for corrLTest in corrLLTest]
-sio.savemat('mat/corrLTest_2048_1.mat',{'corrLL':corrMatLTest[0]})
-corrMatLTest = 0
-#corrMatTest = np.array(fkL(1000,FKCORRTest))
-'''
-for i in range(2):
-    #with h5py.File('mat/corrLTest_%d_1.mat'%i, "w") as f:
-    #    f['corrLL']=corrMatLTest[i]
-    #with h5py.File('mat/corrL_%d_1.mat'%i, "w") as f:
-    #    f['corrLL']=corrMatL[i]
-    sio.savemat('mat/corrL_%d_1_1.mat'%i,{'corrLL':corrMatL[i][:150000]})
-    sio.savemat('mat/corrL_%d_1_2.mat'%i,{'corrLL':corrMatL[i][150000:300000]})
-    sio.savemat('mat/corrL_%d_1_3.mat'%i,{'corrLL':corrMatL[i][300000:]})
-    sio.savemat('mat/corrLTest_%d_1_1.mat'%i,{'corrLL':corrMatLTest[i][:150000]})
-    sio.savemat('mat/corrLTest_%d_1_2.mat'%i,{'corrLL':corrMatLTest[i][150000:300000]})
-    sio.savemat('mat/corrLTest_%d_1_2.mat'%i,{'corrLL':corrMatLTest[i][300000:]})
-    '''
-
+corrLLTest  = fkL(200,FKCORRTest)
 
 corrMatL = []
 corrMatTestL = []
 
-corrMat = sio.loadmat('mat/corrL_2048_1.mat')['corrLL']
-corrMatTest= sio.loadmat('mat/corrLTest_2048_1.mat')['corrLL']
-#corrMat = np.concatenate(corrMatL)
-#corrMatTest = np.concatenate(corrMatTestL)
+
 fvGD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_new_g_0'%i,'file')for i in range(1000)}
 fvPD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_new_p_0'%i,'file')for i in range(1000)}
 fvGDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_new_g_0'%i,'file')for i in range(1000)}
@@ -129,100 +103,71 @@ if not os.path.exists(disDir):
 tTrain = np.array([5,10,20,30,50,80,100,150,200,250])
 tTrain = np.array([5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250])
 def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain):
-    model.train(corrLTrain.x[:],corrLTrain.y[:],\
-        xTest=corrLTest.x[:1000],yTest=corrLTest.y[:1000])
+    #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
+    #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
+    xTest, yTest, tTest =corrLTest(np.arange(3000,6000))
+    #print(xTest.shape,yTest.shape)
+    model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest)
+    #model.train(xTrain, yTrain,xTest=xTest,yTest=yTest)
+    xTest, yTest, tTest =corrLTest(np.arange(3000))
+    corrLTest.plotPickErro(model.predict(xTest),tTrain,\
+        fileName=outputDir+'erro.jpg')
     iL=np.arange(0,1000,50)
-    model.show(corrLTest.x[iL],corrLTest.y[iL],\
-        time0L=corrLTest.t0L[0:1000:50],delta=1.0,T=tTrain,outputDir=outputDir)
-    corrLTest.plotPickErro(model.predict(corrLTest.x[:]),tTrain,fileName=outputDir+'erro.jpg')
+    model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
+        T=tTrain,outputDir=outputDir)
+    
 
 i = 0
-#corrLP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMat.reshape([-1])])
-#corrLTestP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMatTest.reshape([-1])[:20000]])
-#corrLP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMat[0]])
-#corrLTestP = d.corrL([ d.corr().setFromDict(tmpMat,isFile=True) for tmpMat in corrMatTest[0][:20000]])
 stations = seism.StationList('stations/staLstNMV2SelectNew')
 noises=seism.QuakeL('noiseL')
-n = config.getNoise(noises,stations,mul=0.2)
-corrLP = d.corrL(config.modelCorr(100,noises=n))
-corrLTestP = d.corrL(configTest.modelCorr(20))
-corrLP = d.corrL( [ d.corr().setFromDict(corr.toMat())for corr in corrLP])
-corrLTestP = d.corrL( [ d.corr().setFromDict(corr.toMat())for corr in corrLTestP])
-#corrLP = d.corrL(corrLP)
-#corrLTestP = d.corrL(corrLTestP)
-corrLP = corrLL[0]
-corrLTestP = corrLLTest[0]
-#corrLP1 = d.corrL([ d.corr().setFromDict(tmpMat,isFile=False) for tmpMat in corrLL[1]])
-#corrLTestP1 = d.corrL([ d.corr().setFromDict(tmpMat,isFile=False) for tmpMat in corrLLTest[1][:20000]])
-#corrLP = d.corrL(corrLL[1])
-#corrLTestP = d.corrL(corrLLTest[1])
+n = config.getNoise(noises,stations,mul=0.4)
+corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3))
+#corrLP = d.corrL(config.modelCorr(200,randDrop=0.3))
+corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2))
 corrLG     = corrLP.copy()
 corrLTestG = corrLTestP.copy()
-#corrLG1     = corrLP1.copy()
-#corrLTestG1 = corrLTestP1.copy()
-
-corrLP.getTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,randD=30,byT=False,noiseMul=0.0)#,self1=corrLP1)
-corrLTestP.getTimeDis(fvPDTest,tTrain,sigma=3,maxCount=1536,randD=30,byT=False,noiseMul=0.2)#,self1=corrLTestP1)
-corrLG.getTimeDis(fvGD,tTrain,sigma=4,maxCount=2048,randD=30,noiseMul=0.2)#,self1=corrLG1)
-corrLTestG.getTimeDis(fvGDTest,tTrain,sigma=3,maxCount=1536,randD=30,noiseMul=0.2)#,self1=corrLTestG1)
 
 
+corrLP = d.corrL(corrLP)
+corrLTestP = d.corrL(corrLTestP)
+corrLP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,\
+byT=False,noiseMul=0.0)#,self1=corrLP1)
+corrLTestP.setTimeDis(fvPDTest,tTrain,sigma=4,\
+maxCount=4096,byT=False,noiseMul=0.0)#,self1=corrLTestP1)
+corrLG.setTimeDis(fvGD,tTrain,sigma=4,maxCount=4096,\
+noiseMul=0.1)#,self1=corrLG1)
+corrLTestG.setTimeDis(fvGDTest,tTrain,sigma=3,\
+maxCount=4096,noiseMul=0.1)#,self1=corrLTestG1)
 
+
+corrLP1= corrLP.copy()
+corrLP1.setTimeDis(fvPDTest,tTrain,sigma=4,\
+    maxCount=4096,byT=False,noiseMul=0.0)
 modelP = fcn.model(channelList=[0,2,3])
 modelG = fcn.model(channelList=[0])
-trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
-trainAndTest(modelG,corrLG,corrLG,outputDir='predict/G_')
+trainAndTest(modelP,corrLP,corrLTestP,outputDir='predict/P_')
+trainAndTest(modelG,corrLTestG,corrLG,outputDir='predict/G_')
 #trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
 #trainAndTest(modelG,corrLG,corrLG,outputDir='predict/G_')
 #trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
 #trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
-
-corrLQuakeP = d.corrL(config.quakeCorr(quakes[:10],stations,False,para=para))
+quakes   = seism.QuakeL('phaseL')
+corrLQuakeP = d.corrL(config.quakeCorr(quakes[:8],stations,\
+    False,para={}))
 corrLQuakeP= d.corrL(corrLQuakeP[:5000])
-corrLQuakeP.getTimeDis(fvPD,tTrain,sigma=3,maxCount=4096,randD=30,byT=False)
-iL=np.arange(0,5000,125)
-modelP.show(corrLQuakeP.x[iL],corrLQuakeP.y[iL],\
-        time0L=corrLQuakeP.t0L[0:5000:125],delta=1.0,T=tTrain,outputDir='predict/R_P')
+corrLQuakeP.setTimeDis(fvPD,tTrain,sigma=3,maxCount=4096,byT=False)
+xQuake, yQuake, tQuake =corrLQuakeP(np.arange(0,10000,250))
+modelP.show(xQuake, yQuake,time0L=tQuake,delta=1.0,T=tTrain,\
+        outputDir='predict/R_P')
 
 corrLQuakeG = corrLQuakeP.copy()#d.corrL(config.quakeCorr(quakes[:10],stations,False))
-corrLQuakeG.getTimeDis(fvGD,tTrain,sigma=4,maxCount=2048,randD=30,byT=False)
+corrLQuakeG.getTimeDis(fvGD,tTrain,sigma=4,maxCount=2048,\
+    randD=30,byT=False)
 iL=np.arange(0,10000,250)
 modelG.show(corrLQuakeG.x[iL],corrLQuakeG.y[iL],\
-        time0L=corrLQuakeG.t0L[0:10000:250],delta=1.0,T=tTrain,outputDir='predict/R_G')
-#corrLTestG.plotPickErro(model.predict(corrLTestG.x[:]),tTrain)
-'''
-model.train(x[:100000],yG[:100000],xTest=xTest[:1000],yTest=yTestG[:1000])
-iL=np.arange(0,1000,50)
-model.show(xTest[iL],yTestG[iL],time0L=time0L[0:1000:50],delta=0.5,T=tTrain)
+        time0L=corrLQuakeG.t0L[0:10000:250],delta=1.0,T=tTrain,\
+        outputDir='predict/R_G')
 
-time0L=[tmpCorr.timeL[0] for tmpCorr in corrLTmp]
-model.show(xTest[:20],yTestP[:20],time0L=time0L,delta=0.5,T=tTrain)
-model.fit(x,y)
-
-for corr in corrLTmp:
-    plt.close()
-    #corr = d.corr().setFromDict(tmpMat)
-    corr.show(config.getDisp(),fvPDTest[corr.modelFile])
-    plt.savefig('%s%d.jpg'%(disDir,i),dpi=300)
-    print(i)
-    i+=1
-    plt.close()
-    if i >20:
-        break
-
-
-outputDir ='predict/'
-if not os.path.exists(outputDir):
-    os.makedirs(outputDir)
-
-corrLTmp = random.sample(corrLTest,20)
-time0L=[tmpCorr.timeL[0] for tmpCorr in corrLTmp]
-x,y=d.getTimeDis(corrLTmp,fvPDTest,T=tTrain,sigma=2,maxCount=512)
-
-
-
-K.set_value(model.optimizer.lr, K.get_value(model.optimizer.lr) * 0.9)
-'''
 
 import seism
 from obspy import UTCDateTime
@@ -249,7 +194,8 @@ para={\
 'corners':4,
 'maxA':1e10,
 }
-quakes[:100].cutSac(stations,bTime=-10,eTime =4096,para=para,byRecord=False)
+quakes[:100].cutSac(stations,bTime=-10,eTime =4096,\
+    para=para,byRecord=False)
 
 
 
@@ -263,6 +209,10 @@ noises[:10].cutSac(stations,bTime=-10,eTime =4096,para=para,byRecord=False)
 noises[:10].getSacFiles(stations)
 quakes[:10].getSacFiles(stations)
 
-
+for corr in corrLP:
+    if np.isinf(corr.x1).sum()>0:
+        print(np.isinf(corr.x1))
+    if np.isinf(corr.x0).sum()>0:
+        print(np.isifn(corr.x0))
 
 

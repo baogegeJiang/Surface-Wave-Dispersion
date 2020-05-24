@@ -942,7 +942,9 @@ class corr:
         tOut   = self.timeL[posOut]
         v  = self.dis/tOut
         return v,prob
-
+def compareList(i0,i1):
+    di = np.array(i0)-np.array(i1)
+    return np.sum(np.abs(di))<0.1
 
 class corrL(list):
     def __init__(self,*argv,**kwargs):
@@ -950,6 +952,9 @@ class corrL(list):
         if len(argv)>0:
             for tmp in argv[0]:
                 self.append(tmp)
+        self.iL=np.arange(0)
+        self.timeDisArgv = ()
+        self.timeDisKwarg={}
             #if isinstance(argv[0],corrL):
             #    self.x=argv[0].x
             #    self.y=argv[0].y
@@ -957,7 +962,7 @@ class corrL(list):
         plt.close()
         N = yout.shape[0]
         if len(iL) == 0:
-            iL = np.arange(N)
+            iL = self.iL
         dPosL = np.zeros([N,len(T)])
         dPosRL = np.zeros([N,len(T)])
         fL = np.zeros([N,len(T)])
@@ -965,9 +970,9 @@ class corrL(list):
         for i in range(N):
             index   = iL[i]
             tmpCorr = self[index]
-            tmpYin  = self.y[index,:,0]
+            tmpYin  = self.y[i,:,0]
             tmpYOut = yout[i,:,0]
-            t0      = self.t0L[index]
+            t0      = self.t0L[i]
             dPos, dPosR,dDis = tmpCorr.compareInOut(tmpYin,tmpYOut,t0)
             f = (1/T)
             dPosL[i,:]  = dPos
@@ -1004,32 +1009,54 @@ class corrL(list):
         plt.title(fileName[:-4]+'_R')
         plt.savefig(fileName[:-4]+'_R.jpg',dpi=300)
         plt.close()
-
-    def getTimeDis(self,fvD,T,sigma=2,maxCount=512,randD=30,byT=False,noiseMul=0):
+    def setTimeDis(self,*argv,**kwargs):
+        self.timeDisArgv = argv
+        self.timeDisKwarg=kwargs
+        self.iL=np.arange(0)
+    def __call__(self,iL):
+        self.getTimeDis(iL,*self.timeDisArgv,**self.timeDisKwarg)
+        return self.x, self.y, self.t0L
+    def getTimeDis(self,iL,fvD={},T=[],sigma=2,maxCount=512,noiseMul=0,byT=False):
+        #print('sigma',sigma)
+        if len(iL)==0:
+            iL=np.arange(len(self))
+        if not isinstance(iL,np.ndarray):
+            iL = np.array(iL).astype(np.int)
+        if iL.size == self.iL.size:
+            if compareList(iL,self.iL):
+                print('already done')
+                return None
+        self.iL = iL
         maxCount0 = maxCount
-        x    = np.zeros([len(self),maxCount,1,4])
-        y    = np.zeros([len(self),maxCount,1,len(T)])
-        t0L   = np.zeros(len(self))
-        randIndexL = np.zeros(len(self))
-        for i in range(len(self)):
+        x    = np.zeros([len(iL),maxCount,1,4])
+        y    = np.zeros([len(iL),maxCount,1,len(T)])
+        t0L   = np.zeros(len(iL))
+        randIndexL = np.zeros(len(iL))
+        for ii in range(len(iL)):
+            i = iL[ii]
             maxCount = min(maxCount0,self[i].xx.shape[0])
             tmpy,t0=self[i].outputTimeDis(fvD[self[i].modelFile],\
                 T=T,sigma=sigma,byT=byT)
             iP,iN = self.ipin(t0,self[i].fs)
-            y[i,iP:maxCount+iN,0,:] =tmpy[-iN:maxCount-iP]
-            x[i,iP:maxCount+iN,0,0] = np.real(self[i].xx.reshape([-1]))[-iN:maxCount-iP]
-            x[i,iP:maxCount+iN,0,1] = np.imag(self[i].xx.reshape([-1]))[-iN:maxCount-iP]
+            y[ii,iP:maxCount+iN,0,:] =tmpy[-iN:maxCount-iP]
+            x[ii,iP:maxCount+iN,0,0] = np.real(self[i].xx.\
+                reshape([-1]))[-iN:maxCount-iP]
+            x[ii,iP:maxCount+iN,0,1] = np.imag(self[i].xx.\
+                reshape([-1]))[-iN:maxCount-iP]
             dt = np.random.rand()*15-7.5
             iP,iN = self.ipin(t0+dt,self[i].fs)
-            x[i,iP:maxCount+iN,0,2] = self[i].x0.reshape([-1])[-iN:maxCount-iP]
+            x[ii,iP:maxCount+iN,0,2] = self[i].x0.\
+            reshape([-1])[-iN:maxCount-iP]
             iP,iN = self.ipin(dt,self[i].fs)
-            x[i,iP:maxCount+iN,0,3]       = self[i].x1.reshape([-1])[-iN:maxCount-iP]
-            t0L[i]=0
+            x[ii,iP:maxCount+iN,0,3]       = self[i].x1.\
+            reshape([-1])[-iN:maxCount-iP]
+            t0L[ii]=0
         xStd = x.std(axis=1,keepdims=True)
         self.x          = x+noiseMul*np.random.rand(*list(x.shape))*xStd
         self.y          = y
         self.randIndexL = randIndexL
         self.t0L        = t0L
+        #print(x[0,1500,0])
     def ipin(self,dt,fs):
         i0 = int(dt*fs)
         iP = 0 
@@ -1039,26 +1066,6 @@ class corrL(list):
         else:
             iN=i0
         return iP,iN
-        #maxCount = min(maxCount,corrL[0].xx.shape[0])
-        '''
-        for i in range(len(self)):
-            randIndex = int(randD*np.random.rand())
-            maxCount = min(maxCount0,self[i].xx.shape[0])
-            if randIndex>maxCount0-self[i].xx.shape[0]:
-                randIndex*=0
-            randIndexL[i] = randIndex
-            #if i%100==0:
-            #    print(randIndex)
-            x[i,randIndex:maxCount+randIndex,0,0] = np.real(self[i].xx.reshape([-1])[0:maxCount])
-            x[i,randIndex:maxCount+randIndex,0,1] = np.imag(self[i].xx.reshape([-1])[0:maxCount])
-            if len(self1)>0:
-                x[i,randIndex:maxCount+randIndex,0,2] = np.real(self1[i].xx.reshape([-1])[0:maxCount])
-                x[i,randIndex:maxCount+randIndex,0,3] = np.imag(self1[i].xx.reshape([-1])[0:maxCount])
-            tmpy,t0=self[i].outputTimeDis(fvD[self[i].modelFile],\
-                T=T,sigma=sigma,byT=byT)
-            y[i,randIndex:maxCount+randIndex,0,:] =tmpy[0:maxCount]
-            t0L[i]=t0+randIndex/self[i].fs
-        '''
     def copy(self):
         return corrL(self)
 

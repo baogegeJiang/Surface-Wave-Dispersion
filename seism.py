@@ -633,7 +633,7 @@ class Noises:
     def __init__(self,noisesL,mul=0.2):
         for noises in noisesL:
             for noise in noises:
-                noise.data /= noise.data.std()
+                noise.data /= (noise.data.std()+1e-15)
         self.noisesL  = noisesL
         self.mul = mul
     def __call__(self,sacsL,channelL=[0,1,2]):

@@ -62,7 +62,7 @@ def inAndOutFuncNew(config):
         convL[i] = last
         if i in config.dropOutL:
             ii   = config.dropOutL.index(i)
-            last =  Dropout(config.dropOutRateL(ii))(last)
+            last =  Dropout(config.dropOutRateL[ii])(last)
         last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
             strides=(1,1),padding='same',activation = config.activationL[i])(last)
         last     = config.poolL[i](pool_size=config.strideL[i],\
@@ -89,11 +89,11 @@ class fcnConfig:
         '''
         self.inputSize  = [4096,1,4]
         self.outputSize = [4096,1,19]
-        self.featureL   = [min(2**(i+1)+60,100) for i in range(8)]
+        self.featureL   = [min(2**(i+1)+20,40) for i in range(8)]#[min(2**(i+1)+80,120) for i in range(8)]
         self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(4,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
         self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(8,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
-        self.dropOutL   = [2,4,6]
-        self.dropOutRateL=[0.2,0.1,0.2]
+        self.dropOutL   = []
+        self.dropOutRateL=[]
         self.activationL= ['relu','relu','relu','relu','relu',\
         'relu','relu','relu','relu','relu','relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
@@ -104,13 +104,32 @@ class fcnConfig:
     def inAndOut(self):
         return self.inAndOutFunc(self)
 
+class xyt:
+    def __init__(self,x,y,t=''):
+        self.x = x
+        self.y = y
+        self.t = t
+    def __call__(self,iL):
+        if not isinstance(iL,np.ndarray):
+            iL= np.array(iL).astype(np.int)
+        if len(self.t)>0:
+            tout = self.t[iL]
+        else:
+            tout = self.t
+        self.iL = iL
+        return self.x[iL],self.y[iL],tout
+    def __len__(self):
+        return self.x.shape[0]
+
 class model(Model):
-    def __init__(self,config=fcnConfig(),metrics=hitRateNp,channelList=[1,2,3,4]):
+    def __init__(self,weightsFile='',config=fcnConfig(),metrics=hitRateNp,channelList=[1,2,3,4]):
         config.inputSize[-1]=len(channelList)
         self.genM(config)
         self.config = config
         self.metrics = hitRateNp
         self.channelList = channelList
+        if len(weightsFile)>0:
+            model.load_weights(weightsFile)
     def genM(self,config):
         inputs, outputs = config.inAndOut()
         #outputs  = Softmax(axis=3)(last)
@@ -142,17 +161,27 @@ class model(Model):
             return x
     def __call__(self,x):
         return super(Model, self).__call__(K.tensor(self.inx(x)))
-    def train(self,x,y,N=2000,perN=200,batchSize=None,xTest='',yTest='',k0 = -1):
+    def train(self,x,y,**kwarg):
+        if 't' in kwarg:
+            t = kwarg['t']
+        else:
+            t = ''
+        XYT = xyt(x,y,t)
+        self.trainByXYT(XYT,**kwarg)
+    def trainByXYT(self,XYT,N=2000,perN=200,batchSize=None,xTest='',yTest='',k0 = -1,t=''):
         if k0>1:
             K.set_value(self.optimizer.lr, k0)
-        indexL = range(x.shape[0])
+        indexL = range(len(XYT))
         #print(indexL)
         lossMin =100
-        count0  = 30
+        count0  = 10
         count   = count0
+        w0 = self.get_weights()
         for i in range(N):
             iL = random.sample(indexL,perN)
-            self.fit(x[iL],y[iL],batchSize=batchSize)
+            x, y , t0L = XYT(iL)
+            #print(XYT.iL)
+            self.fit(x ,y,batchSize=batchSize)
             if i%3==0:
                 if len(xTest)>0:
                     loss    = self.evaluate(self.inx(xTest),yTest)
@@ -161,13 +190,18 @@ class model(Model):
                     if loss < lossMin:
                         count = count0
                         lossMin = loss
+                        w0 = self.get_weights()
                     if count ==0:
                         break
                     metrics = self.metrics(yTest,self.predict(xTest))
                     print('test loss: ',loss,' metrics: ',metrics)
-            if i%3==0:
+            if i%5==0:
+                print('learning rate: ',self.optimizer.lr)
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.9)
-    def show(self, x, y0,outputDir='predict/',time0L='',delta=0.5,T=np.arange(10),fileStr=''):
+            if i>10 and i%5==0:
+                perN += int(perN*0.05)
+        self.set_weights(w0)
+    def show(self, x, y0,outputDir='predict/',time0L='',delta=0.5,T=np.arange(19),fileStr=''):
         y = self.predict(x)
         f = 1/T
         count = x.shape[1]
@@ -186,18 +220,19 @@ class model(Model):
             legend = ['r s','i s',\
             'r h','i h']
             for j in range(x.shape[-1]):
-                plt.plot(timeL,self.inx(x[i:i+1,:,0:1,j:j+1])[0,:,0,0]-j,'rbgk'[j],label=legend[j])
+                plt.plot(timeL,self.inx(x[i:i+1,:,0:1,j:j+1])[0,:,0,0]-j,'rbgk'[j],\
+                    label=legend[j],linewidth=0.3)
             plt.legend()
             plt.xlim(xlim)
             plt.subplot(3,1,2)
             plt.pcolor(timeL,f,y0[i,:,0,:].transpose())
-            plt.plot(timeL[pos.astype(np.int)],f,'r')
+            plt.plot(timeL[pos.astype(np.int)],f,'r',linewidth=1)
             plt.ylabel('f/Hz')
             plt.gca().semilogy()
             plt.xlim(xlim)
             plt.subplot(3,1,3)
             plt.pcolor(timeL,f,y[i,:,0,:].transpose())
-            plt.plot(timeL[pos0.astype(np.int)],f,'b')
+            plt.plot(timeL[pos0.astype(np.int)],f,'b',linewidth=1)
             plt.ylabel('f/Hz')
             plt.xlabel('t/s')
             plt.gca().semilogy()
@@ -215,6 +250,11 @@ class model(Model):
             y[:,i0:(i0+d)] = x.predict(x[:,i0:(i0+d)])
         return y
         
+'''
 
-
-
+for i in range(10):
+    plt.plot(inputData[i,:,0,0]/5,'k',linewidth=0.3)
+    plt.plot(probP[i,:,0,0].transpose(),'b',linewidth=0.3)
+    plt.plot(probS[i,:,0,0].transpose(),'r',linewidth=0.3)
+    plt.show()
+'''
