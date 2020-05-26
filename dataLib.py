@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import numpy as np
-from obspy import UTCDateTime,read
+from obspy import UTCDateTime,read,read_inventory
 from glob import glob
 def convertFileLst(fileName):
     with open(fileName, 'r') as f:
@@ -34,14 +34,12 @@ class filePath:
                 staName = elements[0] + ' ' +elements[1]
                 self.himaDir[staName] = elements[2:]
     def __call__(self,net,sta,comp,time0,time1):
+        '''
+        you should specify the timeL and staDirL by net sta comp and time0/1
+
+        '''
         time1 = max(time0+1 ,time1)
-        staDirL = []
-        if net == 'GS' or net =='NM':
-            staDirL = ['/media/jiangyr/shanxidata21/nmSacData/'+net+\
-            '.'+sta+'/']
-        staName = net + ' ' + sta
-        if staName in self.himaDir:
-            staDirL = self.himaDir[staName]
+        staDirL = self.getStaDirL(net,sta)
         timeL = np.arange(time0,time1,3600).tolist()
         timeL.append(time1)
         fileL = []
@@ -61,8 +59,91 @@ class filePath:
         elif net == 'GS' or net == 'NM':
             pattern = '%s/%s/%s.%s.%s.%s.SAC'%(staDir,time.strftime('%Y%m/'),\
                 net,sta,time.strftime('%Y%m%d'),comp)
-        #print(pattern)
+        elif net == 'YP':
+            #staDir/2009/R304/NE67.2009.304.00.00.00.BHZ.sac
+            pattern = '%s/%s/%s.%s.*%s.sac'%(staDir,time.strftime('%Y/R%j'),sta,\
+                time.strftime('%Y.%j'),comp)
+        #print('##',pattern)
         return glob(pattern)
+    def getStaDirL(self,net,sta):
+        staDirL = []
+        if net == 'GS' or net =='NM':
+            staDirL = ['/media/jiangyr/shanxidata21/nmSacData/'+net+\
+            '.'+sta+'/']
+        if net == 'YP':
+            staDirL = ['/media/commonMount/data2/NECESSARRAY_SAC/NEdata*/%s/'%sta]
+        staName = net + ' ' + sta
+        if staName in self.himaDir:
+            staDirL = self.himaDir[staName]
+        return staDirL
+    def getSensorDas(self,net,sta):
+        staDirL = self.getStaDirL(net,sta)
+        if net == 'hima':
+            logFileL=[]
+            for staDir in staDirL:
+                print(staDir+'*.log')
+                logFileL += glob(staDir+'*.log')
+            #print(logFileL)
+            logFile = logFileL[0]
+            sensorName = 'UNKNOWN'
+            dasName    = 'UNKNOWN'
+            sensorNum  = 'UNKNOWN'
+            for logFile in logFileL:
+                with open(logFile) as f:
+                    while sensorName=='UNKNOWN'or dasName=='UNKNOWN'or sensorNum=='UNKNOWN':
+                        line = f.readline()
+                        if line=='':
+                            break
+                        if sensorName == 'UNKNOWN':
+                            if 'Sensor Model' in line:
+                                if len(line)<=21:
+                                    tmp = 'UNKNOWN'
+                                else:
+                                    tmp = line[20:].split()
+                                    if len(tmp)>0:
+                                        tmp0 =tmp
+                                        tmp = ''
+                                        for TMP in tmp0:
+                                            tmp+=TMP
+                                    else:
+                                        tmp = 'UNKNOWN'
+                                sensorName = tmp
+                                #if len(sensorName)<3:
+                                #    sensorName= line
+                                print(line)
+                                continue
+                        if sensorNum == 'UNKNOWN':
+                            if 'Sensor Serial Number' in line:
+                                if len(line)<=29:
+                                    tmp = 'UNKNOWN'
+                                else:
+                                    tmp = line[28:].split()
+                                    if len(tmp)>0:
+                                        tmp0 =tmp
+                                        tmp = ''
+                                        for TMP in tmp0:
+                                            tmp+=TMP
+                                    else:
+                                        tmp = 'UNKNOWN'
+                                sensorNum = tmp
+                                print(line)
+                                continue
+                        if dasName =='UNKNOWN':
+                            if 'REF TEK' in line:
+                                dasName    = line.split()[-1]
+                                print(line)
+                                continue
+                if len(sensorName)!=0 and len(dasName)!=0:
+                    return sensorName,dasName,sensorNum
+                else:
+                    return 'UNKNOWN','UNKNOWN','UNKNOWN'
+    def getInventory(self,net,sta,sensorName='UNKNOWN',dasName='UNKNOWN'):
+        respDir = 'resp/'
+        if sensorName=='UNKNOWN' or dasName=='UNKNOWN':
+            sensorName, dasName, sensorNum =self.getSensorDas(net,sta)
+        return read_inventory('%s/%s.%s.resp'%(respDir,net,sensorName)),\
+            read_inventory('%s/%s.%s.resp'%(respDir,net,dasName))
+
 
 
 #/media/jiangyr/shanxidata21/nmSacData/GS.HXP//201410//GS.HXP.20141001.BHZ.SAC

@@ -181,6 +181,7 @@ class config:
         for quake in quakes:
             sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist)
+            #print('###',sacsL)
             sacNamesL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist)
             '''

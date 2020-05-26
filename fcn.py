@@ -59,10 +59,10 @@ def inAndOutFuncNew(config):
     for i in range(depth):
         last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
             strides=(1,1),padding='same',activation = config.activationL[i])(last)
-        convL[i] = last
         if i in config.dropOutL:
             ii   = config.dropOutL.index(i)
             last =  Dropout(config.dropOutRateL[ii])(last)
+        convL[i] = last
         last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
             strides=(1,1),padding='same',activation = config.activationL[i])(last)
         last     = config.poolL[i](pool_size=config.strideL[i],\
@@ -89,11 +89,11 @@ class fcnConfig:
         '''
         self.inputSize  = [4096,1,4]
         self.outputSize = [4096,1,19]
-        self.featureL   = [min(2**(i+1)+20,40) for i in range(8)]#[min(2**(i+1)+80,120) for i in range(8)]
-        self.strideL    = [(2,1),(2,1),(2,1),(2,1),(2,1),(4,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
-        self.kernelL    = [(6,1),(6,1),(6,1),(6,1),(6,1),(8,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
-        self.dropOutL   = []
-        self.dropOutRateL=[]
+        self.featureL   = [min(2**(i+1)+40,100) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]
+        self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
+        self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
+        self.dropOutL   = []#[1,3,5]
+        self.dropOutRateL= []#[0.2,0.2,0.2]
         self.activationL= ['relu','relu','relu','relu','relu',\
         'relu','relu','relu','relu','relu','relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\

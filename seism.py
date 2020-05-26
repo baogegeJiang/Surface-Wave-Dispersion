@@ -135,7 +135,7 @@ class Dist:
 class Station(Dist):
     def __init__(self,*argv,**kwargs):
         super().__init__(*argv,**kwargs)
-        if isinstance(self['compBase'],NoneType): 
+        if not isinstance(self['compBase'],NoneType): 
             self['comp'] = [self['compBase']+s for s in 'ENZ' ]
         #print(self['index'])
         if isinstance( self['index'],NoneType)==False and isinstance( self['nickName'],NoneType):
@@ -143,9 +143,9 @@ class Station(Dist):
     def defaultSet(self):
         super().defaultSet()
         self.keysIn   = 'net sta compBase lo la erroLo erroLa dep erroDep '.split()
-        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc'.split()
-        self.keysType ='S S S f f f f f f S l f F'.split()
-        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP]
+        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum'.split()
+        self.keysType ='S S S f f f f f f S l f F s s'.split()
+        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'UNKNOWN','UNKNOWN','UNKNOWN']
         self.keysName = ['net','sta']
     def getNickName(self, index):
         nickName = ''
@@ -157,12 +157,22 @@ class Station(Dist):
         return nickName
     def getFileNames(self, time0,time1=None):
         if isinstance(time1, NoneType):
-            time1 = time0+86400
+            time1 = time0+86399
         return [self['nameFunc'](self['net'],self['sta'], \
-            self['compBase']+comp, time0,time1) for comp in 'ENZ']
+            comp, time0,time1) for comp in self['comp']]
     def baseSacName(self,resDir='',strL='ENZ'):
         return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in strL]
-
+    def getInventory(self):
+        self.sensor, self.das=  self['nameFunc'].getInventory(self['net'],self['sta'],\
+            self['sensorName'],self['dasName'])
+        return self.sensor,self.das
+    def getSensorDas(self):
+        if self['sensorName'] == 'UNKNOWN' or self['dasName']=='UNKNOWN':
+            sensorName,dasName,sensorNum=self['nameFunc'].getSensorDas(self['net'],self['sta'])
+            self['sensorName'] = sensorName
+            self['dasName']    = dasName
+            self['sensorNum'] = sensorNum
+        return self['sensorName'],self['dasName'],self['sensorNum']
 
 class StationList(list):
     def __init__(self,*argv,**kwargs):
@@ -218,6 +228,14 @@ class StationList(list):
                 if station[tmpStr] !=None:
                     loc[i] = loc[i] + station[tmpStr]
         return loc/len(self)
+    def getInventory(self):
+        for station in self:
+            sensorName, dasName =  station.getSensorDas()
+            if sensorName != 'UNKOWN' and dasName != 'UNKOWN':
+                sensor,das=station.getInventory()
+    def getSensorDas(self):
+        for station in self:
+            sensorName, dasName,sensorNum =  station.getSensorDas()
 
         
 class Record(Dist):
@@ -338,22 +356,28 @@ class Quake(Dist):
                     data.write(resSacNames[i],format='SAC')
         return None
     def getSacFiles(self,stations,isRead=False,resDir = 'eventSac/',strL='ENZ',\
-        byRecord=True,maxDist=-1,minDist=-1):
+        byRecord=True,maxDist=-1,minDist=-1,remove_resp=False):
         sacsL = []
         staIndexs = self.staIndexs()
         tmpDir = self.resDir(resDir)
         for staIndex in range(len(stations)):
             station = stations[staIndex]
+            if remove_resp:
+                sensorName,dasName = stations.getSensorDas()
+                if sensorName=='UNKOWN' \
+                or dasName=='UNKOWN':
+                    continue
             if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
                 continue
             if staIndex in staIndexs:
                 record = self.records[staIndexs.index(staIndex)]
             if maxDist>0 and self.dist(station)>maxDist:
                 continue
-            if minDist>0 and self.dist(station)>minDist:
+            if minDist>0 and self.dist(station)<minDist:
                 continue
             #station = stations[record['staIndex']]
             resSacNames = station.baseSacName(tmpDir,strL=strL)
+            #print(resSacNames)
             #print(resSacNames)
             isF = True
             for resSacName in resSacNames:
@@ -363,6 +387,8 @@ class Quake(Dist):
             if isF == True:
                 if isRead:
                     sacsL.append([ obspy.read(resSacName)[0] for resSacName in resSacNames])
+                    if remove_resp:
+                        sensor,das=stations.getInventory()
                 else:
                     sacsL.append(resSacNames)
         return sacsL

@@ -38,16 +38,16 @@ config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
-        fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=0,maxDist=1e8,minDDist=200,maxDDist=4000)
+        fok='/k',order=0,minSNR=15,isCut=False,\
+        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000)
 configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
         noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
-        fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=0,maxDist=1e8,minDDist=200,maxDDist=4000)
+        fok='/k',order=0,minSNR=15,isCut=False,\
+        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000)
 
 #config.genModel(N=1000,perD= 0.30,depthMul=2)
 #configTest.genModel(N=1000,perD= 0.30,depthMul=2)
@@ -121,6 +121,7 @@ i = 0
 stations = seism.StationList('stations/staLstNMV2SelectNew')
 noises=seism.QuakeL('noiseL')
 n = config.getNoise(noises,stations,mul=0.4)
+n.mul = 0.1
 corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3))
 #corrLP = d.corrL(config.modelCorr(200,randDrop=0.3))
 corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2))
@@ -134,29 +135,26 @@ corrLP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,\
 byT=False,noiseMul=0.0)#,self1=corrLP1)
 corrLTestP.setTimeDis(fvPDTest,tTrain,sigma=4,\
 maxCount=4096,byT=False,noiseMul=0.0)#,self1=corrLTestP1)
-corrLG.setTimeDis(fvGD,tTrain,sigma=4,maxCount=4096,\
-noiseMul=0.1)#,self1=corrLG1)
-corrLTestG.setTimeDis(fvGDTest,tTrain,sigma=3,\
-maxCount=4096,noiseMul=0.1)#,self1=corrLTestG1)
+corrLG.setTimeDis(fvGD,tTrain,sigma=6,maxCount=4096,\
+noiseMul=0.0)#,self1=corrLG1)
+corrLTestG.setTimeDis(fvGDTest,tTrain,sigma=6,\
+maxCount=4096,noiseMul=0.0)#,self1=corrLTestG1)
 
 
-corrLP1= corrLP.copy()
-corrLP1.setTimeDis(fvPDTest,tTrain,sigma=4,\
-    maxCount=4096,byT=False,noiseMul=0.0)
 modelP = fcn.model(channelList=[0,2,3])
-modelG = fcn.model(channelList=[0])
+modelG = fcn.model(channelList=[0,2,3])
 trainAndTest(modelP,corrLP,corrLTestP,outputDir='predict/P_')
-trainAndTest(modelG,corrLTestG,corrLG,outputDir='predict/G_')
+trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 #trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
 #trainAndTest(modelG,corrLG,corrLG,outputDir='predict/G_')
 #trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
 #trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 quakes   = seism.QuakeL('phaseL')
-corrLQuakeP = d.corrL(config.quakeCorr(quakes[:8],stations,\
+corrLQuakeP = d.corrL(config.quakeCorr(quakes[:50],stations,\
     False,para={}))
 corrLQuakeP= d.corrL(corrLQuakeP[:5000])
-corrLQuakeP.setTimeDis(fvPD,tTrain,sigma=3,maxCount=4096,byT=False)
-xQuake, yQuake, tQuake =corrLQuakeP(np.arange(0,10000,250))
+corrLQuakeP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,byT=False)
+xQuake, yQuake, tQuake =corrLQuakeP(np.arange(0,6400,160))
 modelP.show(xQuake, yQuake,time0L=tQuake,delta=1.0,T=tTrain,\
         outputDir='predict/R_P')
 
@@ -172,10 +170,36 @@ modelG.show(corrLQuakeG.x[iL],corrLQuakeG.y[iL],\
 import seism
 from obspy import UTCDateTime
 
-stations = seism.StationList('stations/staLstNMV2SelectNew')
+
 #stations.write('staLstAllNew')
 #quakes   = seism.QuakeL('phaseLstVNM_20200305V1')
 #quakes.write('phaseL')
+stations = seism.StationList('stations/NEsta_all.loc')
+quakes   = seism.QuakeL('phaseGlobal')
+req ={\
+'loc0':stations.loc0(),\
+'maxDist':10000,\
+'minDist':500,\
+'time0':UTCDateTime(2009,1,1).timestamp+243*86400,\
+'time1':UTCDateTime(2011,1,1).timestamp+220*86400\
+}
+quakes.select(req)
+quakes.write('phaseLNE')
+quakes   = seism.QuakeL('phaseLNE')
+para={\
+'delta0' :1,
+'freq'   :[0.8/3e2,0.8/2],
+'corners':4,
+'maxA':1e10,
+}
+quakes[:50].cutSac(stations,bTime=-10,eTime =4096,\
+    para=para,byRecord=False)
+
+
+stations = seism.StationList('stations/staLstNMV2SelectNew')
+stations.getSensorDas()
+stations.write('stations/staLstNMV2SelectNewSensorDas',\
+    'net sta compBase la lo dep sensorName dasName sensorNum')
 quakes   = seism.QuakeL('phaseGlobal')
 req ={\
 'loc0':stations.loc0(),\
@@ -198,21 +222,13 @@ quakes[:100].cutSac(stations,bTime=-10,eTime =4096,\
     para=para,byRecord=False)
 
 
-
+quakes   = seism.QuakeL('phaseL')
 noises = quakes.copy()
 for noise in noises:
     noise['time']-=5000
-
 noises.write('noiseL')
 noises=seism.QuakeL('noiseL')
 noises[:10].cutSac(stations,bTime=-10,eTime =4096,para=para,byRecord=False)
 noises[:10].getSacFiles(stations)
 quakes[:10].getSacFiles(stations)
-
-for corr in corrLP:
-    if np.isinf(corr.x1).sum()>0:
-        print(np.isinf(corr.x1))
-    if np.isinf(corr.x0).sum()>0:
-        print(np.isifn(corr.x0))
-
 
