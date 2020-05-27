@@ -23,7 +23,16 @@ class config:
         xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5,isCut=False,minDist=0,maxDist=1e8,\
-                minDDist=0,maxDDist=1e8,):
+                minDDist=0,maxDDist=1e8,para={})
+        para0= {\
+            'delta0'    :0.02,\
+            'freq'      :[-1, -1],\
+            'filterName':'bandpass',\
+            'corners'   :2,\
+            'zerophase' :True,\
+            'maxA'      :1e5,\
+        }
+        para0.update(para)
         self.originName = originName
         self.srcSacDir  = srcSacDir
         self.distance   = distance
@@ -55,6 +64,7 @@ class config:
         self.maxDist = maxDist
         self.minDDist= minDDist
         self.maxDDist= maxDDist
+        self.para0 = para0
     def getDispL(self):
         return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
             halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
@@ -167,10 +177,11 @@ class config:
     def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={}):
         corrL = []
         disp = self.getDispL()[0]
+        self.para0.update(para)
         for quake in quakes:
             sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
-                remove_resp=remove_resp,para=para)
+                remove_resp=remove_resp,para=self.para0)
             #print('###',sacsL)
             sacNamesL = quake.getSacFiles(stations,isRead = False,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
@@ -180,13 +191,13 @@ class config:
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
                 srcSac=quake.name(s='_'),isCut=self.isCut)
         return corrL
-    def modelCorr(self,count=1000,randDrop=0.3,noises=None):
+    def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={}):
         corrL = []
         disp = self.getDispL()[0]
         for i in range(count):
             modelFile = self.getModelFileByIndex(i)
             sacsLFile = modelFile+'sacFile'
-            sacsL,sacNamesL,srcSac = self.getSacFile(sacsLFile,randDrop=randDrop)
+            sacsL,sacNamesL,srcSac = self.getSacFile(sacsLFile,randDrop=randDrop,para=para)
             if not isinstance(noises,type(None)):
                 noises(sacsL,channelL=[0])
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=modelFile\
@@ -194,9 +205,11 @@ class config:
                 minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist)
         return corrL
-    def getSacFile(self,sacFile,randDrop=0.3):
+    def getSacFile(self,sacFile,randDrop=0.3,para={}):
         sacsL = []
         sacNamesL = []
+        self.para0.update(para)
+        para = self.para0
         with open(sacFile) as f:
             lines = f.readlines()
         for line in lines:
@@ -207,12 +220,18 @@ class config:
                 continue
             sacNames = line.split()
             sacNamesL.append(sacNames)
-            sacsL .append( [obspy.read(sacName)[0] for sacName in sacNames])
+            sacsL.append( [obspy.read(sacName)[0] for sacName in sacNames])
+            if para['freq'][0] > 0:
+                for sac in sacsL[-1]:
+                    sac.filter(para['filterName'],\
+                        freqmin=para['freq'][0], freqmax=para['freq'][1], \
+                        corners=para['corners'], zerophase=para['zerophase'])
         return sacsL,sacNamesL,srcSac
     def getNoise(self,quakes,stations,mul=0.2,byRecord=False,remove_resp=False,para={}):
+        self.para0.update(para)
         sacsL = quakes.getSacFiles(stations,isRead = True,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
-                remove_resp=remove_resp,para=para)
+                remove_resp=remove_resp,para=self.para0)
         return seism.Noises(sacsL,mul=mul)
 
         

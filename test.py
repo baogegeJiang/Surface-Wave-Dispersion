@@ -32,6 +32,7 @@ configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         T=T,threshold=0.1,expnt=10,dk=0.1,\
         fok='/k')
         '''
+para={'freq'      :[0.008,0.8/2]}
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
@@ -39,7 +40,7 @@ config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
         fok='/k',order=0,minSNR=15,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000)
+        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000,para=para)
 configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
@@ -47,7 +48,7 @@ configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
         fok='/k',order=0,minSNR=15,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000)
+        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000,para=para)
 
 #config.genModel(N=1000,perD= 0.30,depthMul=2)
 #configTest.genModel(N=1000,perD= 0.30,depthMul=2)
@@ -102,6 +103,7 @@ if not os.path.exists(disDir):
 
 tTrain = np.array([5,10,20,30,50,80,100,150,200,250])
 tTrain = np.array([5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250])
+tTrain = 120**np.arange(1,0,-1/19)
 def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain):
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
@@ -121,10 +123,10 @@ i = 0
 stations = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck')
 stations.getInventory()
 noises=seism.QuakeL('noiseL')
-n = config.getNoise(noises,stations,mul=0.4)
+n = config.getNoise(noises,stations,mul=0.4,para=para,\
+    byRecord=False,remove_resp=True)
 n.mul = 0.1
 corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3))
-#corrLP = d.corrL(config.modelCorr(200,randDrop=0.3))
 corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2))
 corrLG     = corrLP.copy()
 corrLTestG = corrLTestP.copy()
@@ -133,28 +135,24 @@ corrLTestG = corrLTestP.copy()
 corrLP = d.corrL(corrLP)
 corrLTestP = d.corrL(corrLTestP)
 corrLP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,\
-byT=False,noiseMul=0.0)#,self1=corrLP1)
+byT=False,noiseMul=0.0)
 corrLTestP.setTimeDis(fvPDTest,tTrain,sigma=4,\
-maxCount=4096,byT=False,noiseMul=0.0)#,self1=corrLTestP1)
+maxCount=4096,byT=False,noiseMul=0.0)
 corrLG.setTimeDis(fvGD,tTrain,sigma=6,maxCount=4096,\
-noiseMul=0.0)#,self1=corrLG1)
+noiseMul=0.0)
 corrLTestG.setTimeDis(fvGDTest,tTrain,sigma=6,\
-maxCount=4096,noiseMul=0.0)#,self1=corrLTestG1)
+maxCount=4096,noiseMul=0.0)
 
 
 modelP = fcn.model(channelList=[0,2,3])
 modelG = fcn.model(channelList=[0,2,3])
 trainAndTest(modelP,corrLP,corrLTestP,outputDir='predict/P_')
 trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
-#trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
-#trainAndTest(modelG,corrLG,corrLG,outputDir='predict/G_')
-#trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
-#trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
-para={'freq'      :[0.8/3e2,0.8/2]}
+
 quakes   = seism.QuakeL('phaseL')
+
 corrLQuakeP = d.corrL(config.quakeCorr(quakes[:50],stations,\
     False,remove_resp=True,para=para))
-corrLQuakeP= d.corrL(corrLQuakeP[:5000])
 corrLQuakeP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,byT=False)
 xQuake, yQuake, tQuake =corrLQuakeP(np.arange(0,6400,160))
 modelP.show(xQuake, yQuake,time0L=tQuake,delta=1.0,T=tTrain,\
@@ -233,4 +231,9 @@ noises=seism.QuakeL('noiseL')
 noises[:10].cutSac(stations,bTime=-10,eTime =4096,para=para,byRecord=False)
 noises[:10].getSacFiles(stations)
 quakes[:10].getSacFiles(stations)
-
+for quake in quakes:
+    quake.getSacFiles(stations,isRead=True,remove_resp=True,\
+        isPlot=False,isSave=True,para={'freq'      :[0.8/3e2,0.8/2]})
+for quake in noises:
+    quake.getSacFiles(stations,isRead=True,remove_resp=True,\
+        isPlot=False,isSave=True,para={'freq'      :[0.8/3e2,0.8/2]})

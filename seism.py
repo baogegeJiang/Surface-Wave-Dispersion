@@ -446,7 +446,7 @@ class Quake(Dist):
                             output="VEL",water_level=60)
                             sac.remove_response(inventory=das,\
                             output="VEL",water_level=60)
-                            sac.stats.update(station.defaultStats,originStats)
+                            sac.stats.update(originStats)
                         if isPlot:
                             for i in range(3):
                                 plt.subplot(3,1,i+1)
