@@ -118,7 +118,8 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain):
     
 
 i = 0
-stations = seism.StationList('stations/staLstNMV2SelectNew')
+stations = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck')
+stations.getInventory()
 noises=seism.QuakeL('noiseL')
 n = config.getNoise(noises,stations,mul=0.4)
 n.mul = 0.1
@@ -149,9 +150,10 @@ trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 #trainAndTest(modelG,corrLG,corrLG,outputDir='predict/G_')
 #trainAndTest(modelP,corrLP,corrLP,outputDir='predict/P_')
 #trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
+para={'freq'      :[0.8/3e2,0.8/2]}
 quakes   = seism.QuakeL('phaseL')
 corrLQuakeP = d.corrL(config.quakeCorr(quakes[:50],stations,\
-    False,para={}))
+    False,remove_resp=True,para=para))
 corrLQuakeP= d.corrL(corrLQuakeP[:5000])
 corrLQuakeP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,byT=False)
 xQuake, yQuake, tQuake =corrLQuakeP(np.arange(0,6400,160))

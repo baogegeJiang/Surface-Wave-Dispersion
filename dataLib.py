@@ -33,6 +33,7 @@ class filePath:
                 elements = line.split()
                 staName = elements[0] + ' ' +elements[1]
                 self.himaDir[staName] = elements[2:]
+        self.InventoryD={}
     def __call__(self,net,sta,comp,time0,time1):
         '''
         you should specify the timeL and staDirL by net sta comp and time0/1
@@ -137,13 +138,17 @@ class filePath:
                     return sensorName,dasName,sensorNum
                 else:
                     return 'UNKNOWN','UNKNOWN','UNKNOWN'
-    def getInventory(self,net,sta,sensorName='UNKNOWN',dasName='UNKNOWN'):
+    def getInventory(self,net,sta,sensorName='',dasName=''):
         respDir = 'resp/'
-        if sensorName=='UNKNOWN' or dasName=='UNKNOWN':
+        if sensorName=='' or dasName=='':
             sensorName, dasName, sensorNum =self.getSensorDas(net,sta)
-        return read_inventory('%s/%s.%s.resp'%(respDir,net,sensorName)),\
+        if sensorName not in self.InventoryD:
+            self.InventoryD[sensorName] = \
+            read_inventory('%s/%s.%s.resp'%(respDir,net,sensorName))
+        if dasName not in self.InventoryD:
+            self.InventoryD[dasName]=\
             read_inventory('%s/%s.%s.resp'%(respDir,net,dasName))
-
+        return self.InventoryD[sensorName],self.InventoryD[dasName]
 
 
 #/media/jiangyr/shanxidata21/nmSacData/GS.HXP//201410//GS.HXP.20141001.BHZ.SAC

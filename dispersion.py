@@ -164,35 +164,17 @@ class config:
         tmpName+='_%s_%s_%d'%(self.getMode,pog,self.order)
         print(tmpName)
         return fv(tmpName,'file')
-    def quakeCorr(self,quakes,stations,byRecord=True,para={}):
+    def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={}):
         corrL = []
-        para0 ={\
-        'delta0'    :0.02,\
-        'freq'      :[-1, -1],\
-        'filterName':'bandpass',\
-        'corners'   :2,\
-        'zerophase' :True,\
-        'maxA'      :1e5,\
-        }
-        para0.update(para)
-        print(para0)
-        para = para0
         disp = self.getDispL()[0]
         for quake in quakes:
             sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
-                byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist)
+                byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
+                remove_resp=remove_resp,para=para)
             #print('###',sacsL)
-            sacNamesL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
-                byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist)
-            '''
-            for sacs in sacsL:
-                for sac in sacs:
-                    sac.integrate()
-                    if para['freq'][0] > 0:
-                        sac.filter(para['filterName'],\
-                            freqmin=para['freq'][0], freqmax=para['freq'][1], \
-                            corners=para['corners'], zerophase=para['zerophase'])
-            '''
+            sacNamesL = quake.getSacFiles(stations,isRead = False,strL='ZNE',\
+                byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
+                remove_resp=remove_resp)
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName,\
                 minSNR=self.minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
@@ -227,9 +209,10 @@ class config:
             sacNamesL.append(sacNames)
             sacsL .append( [obspy.read(sacName)[0] for sacName in sacNames])
         return sacsL,sacNamesL,srcSac
-    def getNoise(self,quakes,stations,mul=0.2,byRecord=False):
+    def getNoise(self,quakes,stations,mul=0.2,byRecord=False,remove_resp=False,para={}):
         sacsL = quakes.getSacFiles(stations,isRead = True,strL='ZNE',\
-                byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist)
+                byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
+                remove_resp=remove_resp,para=para)
         return seism.Noises(sacsL,mul=mul)
 
         

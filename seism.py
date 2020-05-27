@@ -6,6 +6,7 @@ from obspy import UTCDateTime,read
 from distaz import DistAz
 import os 
 import random
+from matplotlib import pyplot as plt
 fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
@@ -56,6 +57,7 @@ class Dist:
         if not key in self.keys:
             print('no ',key)
         self.l[self.index(key)] = value
+
     def setByLine(self, line):
         if self.splitKey != ' ':
             tmp = line.split(self.splitKey)
@@ -66,6 +68,7 @@ class Dist:
             tmp[i] = tmp[i].strip()
             index = self.index(self.keysIn[i])
             if tmp[i]!='-99999':
+                #print(self.keysIn[i],index,self.keysType[index][0])
                 self[self.keysIn[i]] = strType[self.keysType[index][0]](tmp[i])
             else:
                 self[self.keysIn[i]] = None
@@ -97,6 +100,10 @@ class Dist:
         selfNew.keysIn = self.keysIn.copy()
         selfNew.splitKey = self.splitKey
         return selfNew
+    def update(self,selfNew):
+        for key in selfNew:
+            if not isinstance(selfNew[key],NoneType):
+                self[key] = selfNew[key]
     def keyIn(self):
         keyIn = ''
         for tmp in self.keysIn:
@@ -132,6 +139,7 @@ class Dist:
         dis = self.distaz(loc)
         return dis.getBaz()
 
+defaultStats = {'network':'00','station':'00000','channel':'000'}
 class Station(Dist):
     def __init__(self,*argv,**kwargs):
         super().__init__(*argv,**kwargs)
@@ -140,12 +148,13 @@ class Station(Dist):
         #print(self['index'])
         if isinstance( self['index'],NoneType)==False and isinstance( self['nickName'],NoneType):
             self['nickName'] = self.getNickName(self['index'])
+        self.defaultStats = defaultStats
     def defaultSet(self):
         super().defaultSet()
         self.keysIn   = 'net sta compBase lo la erroLo erroLa dep erroDep '.split()
         self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum'.split()
-        self.keysType ='S S S f f f f f f S l f F s s'.split()
-        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'UNKNOWN','UNKNOWN','UNKNOWN']
+        self.keysType ='S S S f f f f f f S l f F S S S'.split()
+        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','']
         self.keysName = ['net','sta']
     def getNickName(self, index):
         nickName = ''
@@ -160,14 +169,17 @@ class Station(Dist):
             time1 = time0+86399
         return [self['nameFunc'](self['net'],self['sta'], \
             comp, time0,time1) for comp in self['comp']]
-    def baseSacName(self,resDir='',strL='ENZ'):
-        return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in strL]
+    def baseSacName(self,resDir='',strL='ENZ',infoStr=''):
+        if infoStr=='':
+            return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in strL]
+        else:
+            return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+infoStr+'.'+self['compBase']+comp for comp in strL]
     def getInventory(self):
         self.sensor, self.das=  self['nameFunc'].getInventory(self['net'],self['sta'],\
             self['sensorName'],self['dasName'])
         return self.sensor,self.das
     def getSensorDas(self):
-        if self['sensorName'] == 'UNKNOWN' or self['dasName']=='UNKNOWN':
+        if self['sensorName'] == '' or self['dasName']=='':
             sensorName,dasName,sensorNum=self['nameFunc'].getSensorDas(self['net'],self['sta'])
             self['sensorName'] = sensorName
             self['dasName']    = dasName
@@ -230,8 +242,8 @@ class StationList(list):
         return loc/len(self)
     def getInventory(self):
         for station in self:
-            sensorName, dasName =  station.getSensorDas()
-            if sensorName != 'UNKOWN' and dasName != 'UNKOWN':
+            sensorName, dasName, sensorNum =  station.getSensorDas()
+            if sensorName != 'UNKNOWN' and dasName != 'UNKNOWN':
                 sensor,das=station.getInventory()
     def getSensorDas(self):
         for station in self:
@@ -356,16 +368,31 @@ class Quake(Dist):
                     data.write(resSacNames[i],format='SAC')
         return None
     def getSacFiles(self,stations,isRead=False,resDir = 'eventSac/',strL='ENZ',\
-        byRecord=True,maxDist=-1,minDist=-1,remove_resp=False):
+        byRecord=True,maxDist=-1,minDist=-1,remove_resp=False,isPlot=False,\
+        isSave=False,respStr='_remove_resp',para={}):
         sacsL = []
         staIndexs = self.staIndexs()
         tmpDir = self.resDir(resDir)
+        para0 ={\
+        'delta0'    :0.02,\
+        'freq'      :[-1, -1],\
+        'filterName':'bandpass',\
+        'corners'   :2,\
+        'zerophase' :True,\
+        'maxA'      :1e5,\
+        }
+        para0.update(para)
+        print(para0)
+        para = para0
+        respDone = False
+        if para['freq'][0] > 0:
+            print('filting ',para['freq'])
         for staIndex in range(len(stations)):
             station = stations[staIndex]
-            if remove_resp:
-                sensorName,dasName = stations.getSensorDas()
-                if sensorName=='UNKOWN' \
-                or dasName=='UNKOWN':
+            if remove_resp :
+                sensorName,dasName,sensorNum = station.getSensorDas()
+                if sensorName=='UNKNOWN' or sensorName==''  \
+                or dasName=='UNKNOWN' or dasName=='':
                     continue
             if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
                 continue
@@ -375,10 +402,19 @@ class Quake(Dist):
                 continue
             if minDist>0 and self.dist(station)<minDist:
                 continue
-            #station = stations[record['staIndex']]
             resSacNames = station.baseSacName(tmpDir,strL=strL)
-            #print(resSacNames)
-            #print(resSacNames)
+            if remove_resp and isSave==False:
+                isF = True
+                resSacNames = station.baseSacName(tmpDir,strL=strL,infoStr=respStr)
+                for resSacName in resSacNames:
+                    if not os.path.exists(resSacName):
+                        isF = False
+                        break
+                if isF:
+                    respDone = True
+                else:
+                    resSacNames = station.baseSacName(tmpDir,strL=strL)
+                    
             isF = True
             for resSacName in resSacNames:
                 if not os.path.exists(resSacName):
@@ -386,9 +422,49 @@ class Quake(Dist):
                     break
             if isF == True:
                 if isRead:
+                    #print(resSacNames)
                     sacsL.append([ obspy.read(resSacName)[0] for resSacName in resSacNames])
-                    if remove_resp:
-                        sensor,das=stations.getInventory()
+                    if isPlot:
+                        plt.close()
+                        for i in range(3):
+                            plt.subplot(3,1,i+1)
+                            data = sacsL[-1][i].data
+                            delta= sacsL[-1][i].stats['sac']['delta']
+                            timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
+                            plt.plot(timeL,data/data.std(),'b',linewidth=0.5)
+                    if remove_resp and respDone==False:
+                        print('remove_resp ',station)
+                        sensor = station.sensor
+                        das    = station.das
+                        for sac in sacsL[-1]:
+                            originStats={}
+                            for key in station.defaultStats:
+                                originStats[key] = sac.stats[key]
+                            sac.stats.update(station.defaultStats)
+                            #print(sac.stats)
+                            sac.remove_response(inventory=sensor,\
+                            output="VEL",water_level=60)
+                            sac.remove_response(inventory=das,\
+                            output="VEL",water_level=60)
+                            sac.stats.update(station.defaultStats,originStats)
+                        if isPlot:
+                            for i in range(3):
+                                plt.subplot(3,1,i+1)
+                                data = sacsL[-1][i].data
+                                delta= sacsL[-1][i].stats['sac']['delta']
+                                timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
+                                plt.plot(timeL,data/data.std(),'r',linewidth=0.5)
+                    if para['freq'][0] > 0:
+                        for sac in sacsL[-1]:
+                            sac.filter(para['filterName'],\
+                                freqmin=para['freq'][0], freqmax=para['freq'][1], \
+                                corners=para['corners'], zerophase=para['zerophase'])
+                    if isPlot:
+                        plt.savefig(resSacNames[0]+'.jpg',dpi=200)
+                    if isSave and remove_resp:
+                        resSacNames = station.baseSacName(tmpDir,strL=strL,infoStr=respStr)
+                        for i in range(3):
+                            sacsL[-1][i].write(resSacNames[i],format='SAC')
                 else:
                     sacsL.append(resSacNames)
         return sacsL
@@ -415,7 +491,6 @@ class Quake(Dist):
         super().__setitem__(key,value)
         if key == 'time' :
             self['strTime'] = UTCDateTime(self['time']).strftime('%Y:%m:%d %H:%M:%S.%f')
-
 
 
 
@@ -676,3 +751,14 @@ class Noises:
         *self.mul*sac.data.std()
 
 
+class PZ:
+    def __init__(self,poles,zeros):
+        self.poles=poles
+        self.zeros=zeros
+    def __call__(self,f):
+        output = f.astype(np.complex)*0+1
+        for pole in self.poles:
+            output/=(f-pole)
+        for zero in self.zeros:
+            output*=(f-zero)
+        return output
