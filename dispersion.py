@@ -23,7 +23,7 @@ class config:
         xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5,isCut=False,minDist=0,maxDist=1e8,\
-                minDDist=0,maxDDist=1e8,para={})
+                minDDist=0,maxDDist=1e8,para={}):
         para0= {\
             'delta0'    :0.02,\
             'freq'      :[-1, -1],\
@@ -209,9 +209,10 @@ class config:
         sacsL = []
         sacNamesL = []
         self.para0.update(para)
-        para = self.para0
+        print(self.para0)
         with open(sacFile) as f:
             lines = f.readlines()
+
         for line in lines:
             if line[0]=='#':
                 srcSac = line[1:]
@@ -221,11 +222,11 @@ class config:
             sacNames = line.split()
             sacNamesL.append(sacNames)
             sacsL.append( [obspy.read(sacName)[0] for sacName in sacNames])
-            if para['freq'][0] > 0:
+            if self.para0['freq'][0] > 0:
                 for sac in sacsL[-1]:
-                    sac.filter(para['filterName'],\
-                        freqmin=para['freq'][0], freqmax=para['freq'][1], \
-                        corners=para['corners'], zerophase=para['zerophase'])
+                    sac.filter(self.para0['filterName'],\
+                        freqmin=self.para0['freq'][0], freqmax=self.para0['freq'][1], \
+                        corners=self.para0['corners'], zerophase=self.para0['zerophase'])
         return sacsL,sacNamesL,srcSac
     def getNoise(self,quakes,stations,mul=0.2,byRecord=False,remove_resp=False,para={}):
         self.para0.update(para)

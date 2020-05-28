@@ -109,6 +109,7 @@ class xyt:
         self.x = x
         self.y = y
         self.t = t
+        self.timeDisKwarg={'sigma':-1}
     def __call__(self,iL):
         if not isinstance(iL,np.ndarray):
             iL= np.array(iL).astype(np.int)
@@ -126,7 +127,7 @@ class model(Model):
         config.inputSize[-1]=len(channelList)
         self.genM(config)
         self.config = config
-        self.metrics = hitRateNp
+        self.Metrics = hitRateNp
         self.channelList = channelList
         if len(weightsFile)>0:
             model.load_weights(weightsFile)
@@ -177,6 +178,7 @@ class model(Model):
         count0  = 10
         count   = count0
         w0 = self.get_weights()
+        #print(self.metrics)
         for i in range(N):
             iL = random.sample(indexL,perN)
             x, y , t0L = XYT(iL)
@@ -193,8 +195,10 @@ class model(Model):
                         w0 = self.get_weights()
                     if count ==0:
                         break
-                    metrics = self.metrics(yTest,self.predict(xTest))
-                    print('test loss: ',loss,' metrics: ',metrics)
+                    #print(self.metrics)
+                    metrics = self.Metrics(yTest,self.predict(xTest))
+                    print('test loss: ',loss,' metrics: ',metrics,'sigma: ',\
+                        XYT.timeDisKwarg['sigma'],'w: ',self.config.lossFunc.w)
             if i%5==0:
                 print('learning rate: ',self.optimizer.lr)
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.9)
@@ -222,7 +226,7 @@ class model(Model):
             for j in range(x.shape[-1]):
                 plt.plot(timeL,self.inx(x[i:i+1,:,0:1,j:j+1])[0,:,0,0]-j,'rbgk'[j],\
                     label=legend[j],linewidth=0.3)
-            plt.legend()
+            #plt.legend()
             plt.xlim(xlim)
             plt.subplot(3,1,2)
             plt.pcolor(timeL,f,y0[i,:,0,:].transpose())

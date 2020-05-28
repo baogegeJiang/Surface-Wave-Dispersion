@@ -32,7 +32,7 @@ configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         T=T,threshold=0.1,expnt=10,dk=0.1,\
         fok='/k')
         '''
-para={'freq'      :[0.008,0.8/2]}
+para={'freq'      :[1/150,0.8/4]}
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
@@ -103,14 +103,24 @@ if not os.path.exists(disDir):
 
 tTrain = np.array([5,10,20,30,50,80,100,150,200,250])
 tTrain = np.array([5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250])
-tTrain = 120**np.arange(1,0,-1/19)
-def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain):
+tTrain = (12**np.arange(0,1.000001,1/18))*10
+def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
+    sigmaL=[4,3,2,1.5]):
+    '''
+    依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
+    '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    xTest, yTest, tTest =corrLTest(np.arange(3000,6000))
-    #print(xTest.shape,yTest.shape)
-    model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest)
-    #model.train(xTrain, yTrain,xTest=xTest,yTest=yTest)
+    w0 = model.config.lossFunc.w
+    for sigma in sigmaL:
+        model.config.lossFunc.w = w0*4/sigma
+        corrLTrain.timeDisKwarg['sigma']=sigma
+        corrLTest.timeDisKwarg['sigma']=sigma
+        corrLTest.iL=np.array([])
+        model.compile(loss=model.config.lossFunc, optimizer='Nadam')
+        xTest, yTest, tTest =corrLTest(np.arange(3000,6000))
+        model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest)
+
     xTest, yTest, tTest =corrLTest(np.arange(3000))
     corrLTest.plotPickErro(model.predict(xTest),tTrain,\
         fileName=outputDir+'erro.jpg')
@@ -123,9 +133,9 @@ i = 0
 stations = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck')
 stations.getInventory()
 noises=seism.QuakeL('noiseL')
-n = config.getNoise(noises,stations,mul=0.4,para=para,\
+n = config.getNoise(noises,stations,mul=0.8,para=para,\
     byRecord=False,remove_resp=True)
-n.mul = 0.1
+#n.mul = 0.1
 corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3))
 corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2))
 corrLG     = corrLP.copy()
