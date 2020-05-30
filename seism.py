@@ -658,19 +658,17 @@ def adjust(data,stloc=None,kzTime=None,tmpFile='test.sac',decMul=-1,eloc=None,ch
         data.stats['sac']['o']=o
     if kzTime!=None:
         kzTime=UTCDateTime(kzTime)
-        dTime=kzTime.timestamp-(data.stats.starttime.timestamp-data.stats['sac']['b'])
-        data.stats['sac']['nzyear']=int(kzTime.year)
-        data.stats['sac']['nzjday']=int(kzTime.julday)
-        data.stats['sac']['nzhour']=int(kzTime.hour)
-        data.stats['sac']['nzmin']=int(kzTime.minute)
-        data.stats['sac']['nzsec']=int(kzTime.second)
-        data.stats['sac']['nzmsec']=int(kzTime.microsecond/1000)
-        data.stats['sac']['b']-=dTime
-        #data.stats['sac']['b']=(int(data.stats['sac']['b']/data.stats.delta)*data.stats.delta)
-        data.stats['sac']['e']=data.stats['sac']['b']+(data.data.size-1)*data.stats.delta
-        data.write(tmpFile)
-        data=obspy.read(tmpFile)[0]
-        print(data.stats['sac']['b'],data.stats['sac']['e'])
+        data.stats['sac']['nzyear'] = int(kzTime.year)
+        data.stats['sac']['nzjday'] = int(kzTime.julday)
+        data.stats['sac']['nzhour'] = int(kzTime.hour)
+        data.stats['sac']['nzmin']  = int(kzTime.minute)
+        data.stats['sac']['nzsec']  = int(kzTime.second)
+        data.stats['sac']['nzmsec'] = int(kzTime.microsecond/1000)
+        data.stats['sac']['b']      = data.stats.starttime.timestamp-kzTime.timestamp
+        data.stats['sac']['e']      = data.stats['sac']['b']+(data.data.size-1)*data.stats.delta
+        #data.write(tmpFile)
+        #data=obspy.read(tmpFile)[0]
+        #print(data.stats['sac']['b'],data.stats['sac']['e'])
     return data
 
 
@@ -747,7 +745,7 @@ class Noises:
         sSize = sac.data.size
         randI = np.random.rand()*nSize
         randL = (np.arange(sSize)+randI)%nSize
-        sac.data+=np.random.rand()*noise.data[randL.astype(np.int)]\
+        sac.data+=(np.random.rand()**2)*noise.data[randL.astype(np.int)]\
         *self.mul*sac.data.std()
 
 
@@ -762,3 +760,23 @@ class PZ:
         for zero in self.zeros:
             output*=(f-zero)
         return output
+
+def sacFromO(sac):
+    if sac.stats['sac']['b']>0:
+        kzTime = sac.stats.starttime-sac.stats['sac']['b']
+        d  = int((sac.stats['sac']['b']+1)/sac.stats['sac']['delta'])*\
+            sac.stats['sac']['delta']
+        dN = int(d/sac.stats['sac']['delta'])
+        N  = sac.data.size
+        data = np.zeros(dN+N)
+        data[dN:] = sac.data
+        sac.data = data
+        sac.stats.starttime -=d
+        sac = adjust(sac,kzTime=kzTime.timestamp)
+    kzTime= sac.stats.starttime - sac.stats['sac']['b']
+    endtime  = sac.stats.endtime
+    sac=sac.slice(starttime=kzTime, \
+        endtime=endtime, nearest_sample=True)
+    sac=adjust(sac,kzTime=kzTime.timestamp)
+
+    return sac

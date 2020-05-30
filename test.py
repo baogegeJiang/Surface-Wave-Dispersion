@@ -18,37 +18,25 @@ absPath = '/home/jiangyr/home/Surface-Wave-Dispersion/'
 srcSacDir='/home/jiangyr/Surface-Wave-Dispersion/srcSac/'
 srcSacDirTest='/home/jiangyr/Surface-Wave-Dispersion/srcSacTest/'
 T=np.array([0.5,1,2,5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250,275,300])
-'''
-config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
-        distance=np.arange(400,1800,100),srcSacNum=100,delta=0.5,layerN=20,\
-        layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
-        xcorrFuncL = [mathFunc.xcorrSimple,mathFunc.xcorrComplex],isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
-        T=T,threshold=0.1,expnt=10,dk=0.1,\
-        fok='/k')
-configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
-        distance=np.arange(400,1800,100),srcSacNum=100,delta=0.5,layerN=28,\
-        layerMode='prem',getMode = 'norm',surfaceMode='PSV',nperseg=200,noverlap=196,halfDt=150,\
-        xcorrFuncL = [mathFunc.xcorrSimple,mathFunc.xcorrComplex],isFlat=True,R=6371,flatM=-2,pog='p',calMode='fast',\
-        T=T,threshold=0.1,expnt=10,dk=0.1,\
-        fok='/k')
-        '''
-para={'freq'      :[1/150,0.8/4]}
+
+para={'freq'      :[1/180,0.8/4]}
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
         noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
-        fok='/k',order=0,minSNR=15,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000,para=para)
+        fok='/k',order=0,minSNR=10,isCut=False,\
+        minDist=1000,maxDist=1e8,minDDist=200,\
+        maxDDist=3000,para=para,isFromO=True)
 configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
         noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
-        fok='/k',order=0,minSNR=15,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000,para=para)
+        fok='/k',order=0,minSNR=10,isCut=False,\
+        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000,para=para,isFromO=True)
 
 #config.genModel(N=1000,perD= 0.30,depthMul=2)
 #configTest.genModel(N=1000,perD= 0.30,depthMul=2)
@@ -103,7 +91,7 @@ if not os.path.exists(disDir):
 
 tTrain = np.array([5,10,20,30,50,80,100,150,200,250])
 tTrain = np.array([5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250])
-tTrain = (12**np.arange(0,1.000001,1/18))*10
+tTrain = (16**np.arange(0,1.000001,1/29))*10
 def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     sigmaL=[4,3,2,1.5]):
     '''
@@ -120,24 +108,25 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
         model.compile(loss=model.config.lossFunc, optimizer='Nadam')
         xTest, yTest, tTest =corrLTest(np.arange(3000,6000))
         model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest)
+        
 
     xTest, yTest, tTest =corrLTest(np.arange(3000))
     corrLTest.plotPickErro(model.predict(xTest),tTrain,\
-        fileName=outputDir+'erro.jpg')
+    fileName=outputDir+'erro.jpg')
     iL=np.arange(0,1000,50)
     model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
-        T=tTrain,outputDir=outputDir)
+    T=tTrain,outputDir=outputDir)
     
 
 i = 0
 stations = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck')
 stations.getInventory()
 noises=seism.QuakeL('noiseL')
-n = config.getNoise(noises,stations,mul=0.8,para=para,\
+n = config.getNoise(noises,stations,mul=1.6,para=para,\
     byRecord=False,remove_resp=True)
 #n.mul = 0.1
-corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3))
-corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2))
+corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3,minSNR=0.1))
+corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2,minSNR=0.1))
 corrLG     = corrLP.copy()
 corrLTestG = corrLTestP.copy()
 
@@ -161,8 +150,8 @@ trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 
 quakes   = seism.QuakeL('phaseL')
 
-corrLQuakeP = d.corrL(config.quakeCorr(quakes[:50],stations,\
-    False,remove_resp=True,para=para))
+corrLQuakeP = d.corrL(config.quakeCorr(quakes[:20],stations,\
+    False,remove_resp=True,para=para,minSNR=15))
 corrLQuakeP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,byT=False)
 xQuake, yQuake, tQuake =corrLQuakeP(np.arange(0,6400,160))
 modelP.show(xQuake, yQuake,time0L=tQuake,delta=1.0,T=tTrain,\
@@ -230,8 +219,8 @@ para={\
 }
 quakes[:100].cutSac(stations,bTime=-10,eTime =4096,\
     para=para,byRecord=False)
-
-
+quakes[-300:].cutSac(stations,bTime=-10,eTime =4096,\
+    para=para,byRecord=False)
 quakes   = seism.QuakeL('phaseL')
 noises = quakes.copy()
 for noise in noises:

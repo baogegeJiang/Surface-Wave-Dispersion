@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
-from mathFunc import getDetec,xcorrSimple,xcorrComplex,flat
+from mathFunc import getDetec,xcorrSimple,xcorrComplex,flat,validL
 from numba import jit,float32, int64
 from scipy import fftpack,interpolate
 from fk import FK,getSourceSacName,FKL
@@ -23,7 +23,7 @@ class config:
         xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5,isCut=False,minDist=0,maxDist=1e8,\
-                minDDist=0,maxDDist=1e8,para={}):
+                minDDist=0,maxDDist=1e8,para={},isFromO=False):
         para0= {\
             'delta0'    :0.02,\
             'freq'      :[-1, -1],\
@@ -45,7 +45,7 @@ class config:
         self.nperseg    = nperseg
         self.noverlap   = noverlap
         self.halfDt     = halfDt
-        self.xcorrFuncL  = xcorrFuncL
+        self.xcorrFuncL = xcorrFuncL
         self.isFlat     = isFlat
         self.R          = R
         self.flatM      = flatM
@@ -57,14 +57,15 @@ class config:
         self.dk         = dk
         self.fok        = fok
         self.gpdcExe    = gpdcExe
-        self.order =order
-        self.minSNR=minSNR
-        self.isCut = isCut
-        self.minDist = minDist
-        self.maxDist = maxDist
-        self.minDDist= minDDist
-        self.maxDDist= maxDDist
-        self.para0 = para0
+        self.order      = order
+        self.minSNR     = minSNR
+        self.isCut      = isCut
+        self.minDist    = minDist
+        self.maxDist    = maxDist
+        self.minDDist   = minDDist
+        self.maxDDist   = maxDDist
+        self.para0      = para0
+        self.isFromO    = isFromO
     def getDispL(self):
         return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
             halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
@@ -174,9 +175,11 @@ class config:
         tmpName+='_%s_%s_%d'%(self.getMode,pog,self.order)
         print(tmpName)
         return fv(tmpName,'file')
-    def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={}):
+    def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1):
         corrL = []
         disp = self.getDispL()[0]
+        if minSNR <0:
+            minSNR = self.minSNR
         self.para0.update(para)
         for quake in quakes:
             sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
@@ -187,13 +190,15 @@ class config:
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
                 remove_resp=remove_resp)
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName,\
-                minSNR=self.minSNR,minDist=self.minDist,maxDist=self.maxDist,\
+                minSNR=minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
-                srcSac=quake.name(s='_'),isCut=self.isCut)
+                srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO)
         return corrL
-    def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={}):
+    def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
         corrL = []
         disp = self.getDispL()[0]
+        if minSNR <0:
+            minSNR = self.minSNR
         for i in range(count):
             modelFile = self.getModelFileByIndex(i)
             sacsLFile = modelFile+'sacFile'
@@ -201,9 +206,10 @@ class config:
             if not isinstance(noises,type(None)):
                 noises(sacsL,channelL=[0])
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=modelFile\
-                ,srcSac=srcSac,minSNR=self.minSNR,isCut=self.isCut,\
+                ,srcSac=srcSac,minSNR=minSNR,isCut=self.isCut,\
                 minDist=self.minDist,maxDist=self.maxDist,\
-                minDDist=self.minDDist,maxDDist=self.maxDDist)
+                minDDist=self.minDDist,maxDDist=self.maxDDist\
+                ,isFromO=self.isFromO)
         return corrL
     def getSacFile(self,sacFile,randDrop=0.3,para={}):
         sacsL = []
@@ -222,6 +228,7 @@ class config:
             sacNames = line.split()
             sacNamesL.append(sacNames)
             sacsL.append( [obspy.read(sacName)[0] for sacName in sacNames])
+
             if self.para0['freq'][0] > 0:
                 for sac in sacsL[-1]:
                     sac.filter(self.para0['filterName'],\
@@ -988,7 +995,7 @@ class corrL(list):
         res    = np.zeros([len(T),len(bins)-1])
         for i in range(len(T)):
             res[i,:],tmp=np.histogram(dPosL[:,i],bins,density=True)
-        plt.pcolor(bins[:-1],1/T,res)
+        plt.pcolor(bins[:-1],1/T,res,cmap='bwr')
         #plt.scatter(dPosL,fL,s=0.5,c = dDisL/2000,alpha=0.3)
         plt.xlabel('erro/s')
         plt.ylabel('f/Hz')
@@ -1032,9 +1039,11 @@ class corrL(list):
                 return None
         self.iL = iL
         maxCount0 = maxCount
-        x    = np.zeros([len(iL),maxCount,1,4])
-        y    = np.zeros([len(iL),maxCount,1,len(T)])
-        t0L   = np.zeros(len(iL))
+        x      = np.zeros([len(iL),maxCount,1,4])
+        y      = np.zeros([len(iL),maxCount,1,len(T)])
+        t0L    = np.zeros(len(iL))
+        dDisL  = np.zeros(len(iL))
+        deltaL = np.zeros(len(iL))
         randIndexL = np.zeros(len(iL))
         for ii in range(len(iL)):
             i = iL[ii]
@@ -1047,7 +1056,7 @@ class corrL(list):
                 reshape([-1]))[-iN:maxCount-iP]
             x[ii,iP:maxCount+iN,0,1] = np.imag(self[i].xx.\
                 reshape([-1]))[-iN:maxCount-iP]
-            dt = np.random.rand()*15-7.5
+            dt = np.random.rand()*5-2.5
             iP,iN = self.ipin(t0+dt,self[i].fs)
             x[ii,iP:maxCount+iN,0,2] = self[i].x0.\
             reshape([-1])[-iN:maxCount-iP]
@@ -1055,12 +1064,101 @@ class corrL(list):
             x[ii,iP:maxCount+iN,0,3]       = self[i].x1.\
             reshape([-1])[-iN:maxCount-iP]
             t0L[ii]=0
+            dDisL[ii] = self[i].dDis
+            deltaL[ii]= self[i].timeL[1]-self[i].timeL[0]
         xStd = x.std(axis=1,keepdims=True)
         self.x          = x+noiseMul*np.random.rand(*list(x.shape))*xStd
         self.y          = y
         self.randIndexL = randIndexL
         self.t0L        = t0L
+        self.dDisL      = dDisL
+        self.deltaL     = deltaL
         #print(x[0,1500,0])
+    def getV(self,yout,isSimple=True,minV = 2, maxV=7):
+        if isSimple:
+            pos = yout.argmax(axis=1)[:,0]
+            prob= yout.max(axis=1)[:,0]
+            time= self.t0L.reshape([-1,1])+pos*self.deltaL.reshape([-1,1])
+            v   = self.dDisL.reshape([-1,1])/(time)
+        else:
+            N    = yout.shape[0]
+            M    = yout.shape[-1]
+            v    = np.zeros([N,M])
+            prob = np.zeros([N,M])
+            for i in range(N):
+                maxT = self.dDisL[i]/minV
+                minT = self.dDisL[i]/maxV
+                i0 = max(0,int((minT - self.t0L[0])/self.deltaL[i]))
+                i1 = min(yout.shape[1]-1,int((maxT - self.t0L[0])/self.deltaL[i]))
+                for j in range(M):
+                    pos      = yout[i,i0:i1,0,j].argmax()+i0
+                    time     = self.t0L[i]+pos*self.deltaL[i]
+                    prob[i,j]= yout[i,i0:i1,0,j].max()
+                    v[i,j]   = self.dDisL[i]/time
+        return v,prob
+    def saveV(self,v,prob,f,T,iL=[]):
+        if len(iL) ==0:
+            iL=self.iL
+        for i in range(v.shape[0]):
+            index = iL[i]
+            corr  = self[index]
+            f.write('%s %s %s %s | '%(corr.srcSac, corr.modelFile, corr.name0, corr.name1))
+            for tmp in T:
+                f.write(' %.3f '% (1/tmp))
+            f.write('|')
+            for tmp in v[i]:
+                f.write(' %.3f '% tmp)
+            f.write('|')
+            for tmp in prob[i]:
+                f.write(' %.3f '% tmp)
+            f.write('\n')
+    def getAndSave(self,model,fileName,isPlot=False,isSimple=True,minV=2, maxV=7):
+        N = len(self)
+        if 'T' in self.timeDisKwarg:
+            T = self.timeDisKwarg['T']
+        else:
+            T = self.timeDisArgv[1]
+        M = len(T)
+        v = np.zeros([N,M])
+        v0= np.zeros([N,M])
+        prob=np.zeros([N,M])
+        prob0=np.zeros([N,M])
+        for i0 in range(0,N,1000):
+            i1 = min(i0+1000,N-1)
+            x, y, t= self(np.arange(i0, i1))
+            v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,minV=2,maxV=7)
+            v0[i0:i1],prob0[i0:i1]=self.getV(y)
+        with open(fileName,'w+') as f:
+            self.saveV(v,prob,f,T, np.arange(N))
+        if isPlot:
+            '''
+            plt.close()
+            plt.plot(v.transpose(),1/T,'k',linewidth=0.1,alpha=0.3)
+            plt.gca().semilogy()
+            plt.xlim([2.5,6])
+            plt.savefig(fileName+'.jpg',dpi=300)
+
+            plt.close()
+            plt.plot(v.transpose()-v0.transpose(),1/T,'k',linewidth=0.1,alpha=0.3)
+            plt.gca().semilogy()
+            plt.xlim([2.5,6])
+            plt.savefig(fileName+'_dv.jpg',dpi=300)
+            '''
+            dv = np.abs(v-v0)
+            plt.close()
+            for i in range(dv.shape[0]):
+                indexL = validL(dv[i],prob[i],minProb=0.8,minV=-1,maxV=2)
+                if np.random.rand()<0.1:
+                        print('validL: ',indexL)
+                for iL in indexL:
+                    iL = np.array(iL).astype(np.int)
+                    plt.plot(v[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
+            plt.xlim([2,7])
+            plt.gca().semilogy()
+            plt.savefig(fileName+'.jpg',dpi=300)
+
+            
+
     def ipin(self,dt,fs):
         i0 = int(dt*fs)
         iP = 0 
@@ -1096,16 +1194,18 @@ def corrSac(d,sac0,sac1,name0='',name1='',az=np.array([0,0]),dura=0,M=np.array([
 
 def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
-    maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0):
+    maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False):
     corrL = []
     N = len(sacsL)
     distL = np.zeros(N)
     SNR = np.zeros(N)
     for i in range(N):
+        if isFromO:   
+            sacsL[i][0] = seism.sacFromO(sacsL[i][0])
         distL[i] = sacsL[i][0].stats['sac']['dist']
         pos = np.abs(sacsL[i][0].data).argmax()
         dTime = pos*sacsL[i][0].stats['sac']['delta']+sacsL[i][0].stats['sac']['b']
-        print(pos,dTime,distL[i])
+        #print(pos,dTime,distL[i])
         if dTime<distL[i]/5:
             SNR[i] = 0
             continue

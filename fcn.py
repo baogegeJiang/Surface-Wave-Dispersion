@@ -88,7 +88,7 @@ class fcnConfig:
         self.lossFunc   = lossFuncSoft
         '''
         self.inputSize  = [4096,1,4]
-        self.outputSize = [4096,1,19]
+        self.outputSize = [4096,1,30]
         self.featureL   = [min(2**(i+1)+40,100) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]
         self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
         self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
@@ -229,14 +229,16 @@ class model(Model):
             #plt.legend()
             plt.xlim(xlim)
             plt.subplot(3,1,2)
-            plt.pcolor(timeL,f,y0[i,:,0,:].transpose())
-            plt.plot(timeL[pos.astype(np.int)],f,'r',linewidth=1)
+            #plt.clim(0,1)
+            plt.pcolor(timeL,f,y0[i,:,0,:].transpose(),cmap='bwr',vmin=0,vmax=1)
+            plt.plot(timeL[pos.astype(np.int)],f,'k',linewidth=0.5)
             plt.ylabel('f/Hz')
             plt.gca().semilogy()
             plt.xlim(xlim)
             plt.subplot(3,1,3)
-            plt.pcolor(timeL,f,y[i,:,0,:].transpose())
-            plt.plot(timeL[pos0.astype(np.int)],f,'b',linewidth=1)
+            plt.pcolor(timeL,f,y[i,:,0,:].transpose(),cmap='bwr',vmin=0,vmax=1)
+            #plt.clim(0,1)
+            plt.plot(timeL[pos0.astype(np.int)],f,'k',linewidth=0.5)
             plt.ylabel('f/Hz')
             plt.xlabel('t/s')
             plt.gca().semilogy()
@@ -253,7 +255,35 @@ class model(Model):
         for i0 in iL:
             y[:,i0:(i0+d)] = x.predict(x[:,i0:(i0+d)])
         return y
+    def set(self,modelOld):
+        self.set_weights(modelOld.get_weights())
+
+tTrain = (16**np.arange(0,1.000001,1/29))*10
+def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
+    sigmaL=[4,3,2,1.5]):
+    '''
+    依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
+    '''
+    #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
+    #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
+    w0 = model.config.lossFunc.w
+    for sigma in sigmaL:
+        model.config.lossFunc.w = w0*4/sigma
+        corrLTrain.timeDisKwarg['sigma']=sigma
+        corrLTest.timeDisKwarg['sigma']=sigma
+        corrLTest.iL=np.array([])
+        model.compile(loss=model.config.lossFunc, optimizer='Nadam')
+        xTest, yTest, tTest =corrLTest(np.arange(3000,6000))
+        model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest)
         
+        
+    xTest, yTest, tTest =corrLTest(np.arange(3000))
+    corrLTest.plotPickErro(model.predict(xTest),tTrain,\
+    fileName=outputDir+'erro.jpg')
+    iL=np.arange(0,1000,50)
+    model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
+    T=tTrain,outputDir=outputDir)
+      
 '''
 
 for i in range(10):

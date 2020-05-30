@@ -152,4 +152,20 @@ def flat(z,vp,vs,rho,m=-2,R=6371):
     vsNew   =  (miuNew/rhoNew)**0.5
     return zNew,vpNew,vsNew,rhoNew
 
+def validL(v,prob, minProb = 0.7,minV=2,maxV=6):
+    l    = []
+    tmp  = []
+    for i in range(len(v)):
+        if v[i] > minV and v[i]<maxV and\
+         prob[i]>minProb:
+            tmp.append(i)
+            if i == len(v)-1:
+                l.append(tmp)
+            continue
+        elif len(tmp)>0:
+            l.append(tmp)
+            tmp=[]
+    return l
+
+
 
