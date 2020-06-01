@@ -745,7 +745,7 @@ class Noises:
         sSize = sac.data.size
         randI = np.random.rand()*nSize
         randL = (np.arange(sSize)+randI)%nSize
-        sac.data+=(np.random.rand()**2)*noise.data[randL.astype(np.int)]\
+        sac.data+=(np.random.rand()**3)*noise.data[randL.astype(np.int)]\
         *self.mul*sac.data.std()
 
 

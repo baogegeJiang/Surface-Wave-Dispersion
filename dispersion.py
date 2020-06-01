@@ -189,6 +189,9 @@ class config:
             sacNamesL = quake.getSacFiles(stations,isRead = False,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
                 remove_resp=remove_resp)
+            if self.isFromO:
+                for sacs in sacsL:
+                    sacs[0] = seism.sacFromO(sacs[0])
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName,\
                 minSNR=minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
@@ -203,6 +206,9 @@ class config:
             modelFile = self.getModelFileByIndex(i)
             sacsLFile = modelFile+'sacFile'
             sacsL,sacNamesL,srcSac = self.getSacFile(sacsLFile,randDrop=randDrop,para=para)
+            if self.isFromO:
+                for sacs in sacsL:
+                    sacs[0] = seism.sacFromO(sacs[0])
             if not isinstance(noises,type(None)):
                 noises(sacsL,channelL=[0])
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=modelFile\
@@ -1063,6 +1069,7 @@ class corrL(list):
             iP,iN = self.ipin(dt,self[i].fs)
             x[ii,iP:maxCount+iN,0,3]       = self[i].x1.\
             reshape([-1])[-iN:maxCount-iP]
+            #print('###',t0,dt,iP,iN)
             t0L[ii]=0
             dDisL[ii] = self[i].dDis
             deltaL[ii]= self[i].timeL[1]-self[i].timeL[0]
@@ -1074,7 +1081,7 @@ class corrL(list):
         self.dDisL      = dDisL
         self.deltaL     = deltaL
         #print(x[0,1500,0])
-    def getV(self,yout,isSimple=True,minV = 2, maxV=7):
+    def getV(self,yout,isSimple=True,D=0.1):
         if isSimple:
             pos = yout.argmax(axis=1)[:,0]
             prob= yout.max(axis=1)[:,0]
@@ -1085,12 +1092,20 @@ class corrL(list):
             M    = yout.shape[-1]
             v    = np.zeros([N,M])
             prob = np.zeros([N,M])
+            fvD = self.timeDisArgv[0]
+            T = self.timeDisArgv[1]
             for i in range(N):
-                maxT = self.dDisL[i]/minV
-                minT = self.dDisL[i]/maxV
-                i0 = max(0,int((minT - self.t0L[0])/self.deltaL[i]))
-                i1 = min(yout.shape[1]-1,int((maxT - self.t0L[0])/self.deltaL[i]))
-                for j in range(M):
+                index = self.iL[i]
+                modelFile = self[index].modelFile
+                fv=fvD[modelFile]
+                for j in range(M): 
+                    v0 = fv(1/T[j])
+                    minV = (1-D)*v0
+                    maxV = (1+D)*v0
+                    maxT = self.dDisL[i]/minV
+                    minT = self.dDisL[i]/maxV
+                    i0 = max(0,int((minT - self.t0L[0])/self.deltaL[i]))
+                    i1 = min(yout.shape[1]-1,int((maxT - self.t0L[0])/self.deltaL[i]))
                     pos      = yout[i,i0:i1,0,j].argmax()+i0
                     time     = self.t0L[i]+pos*self.deltaL[i]
                     prob[i,j]= yout[i,i0:i1,0,j].max()
@@ -1112,7 +1127,7 @@ class corrL(list):
             for tmp in prob[i]:
                 f.write(' %.3f '% tmp)
             f.write('\n')
-    def getAndSave(self,model,fileName,isPlot=False,isSimple=True,minV=2, maxV=7):
+    def getAndSave(self,model,fileName,isPlot=False,isSimple=True,D=0.2):
         N = len(self)
         if 'T' in self.timeDisKwarg:
             T = self.timeDisKwarg['T']
@@ -1126,7 +1141,7 @@ class corrL(list):
         for i0 in range(0,N,1000):
             i1 = min(i0+1000,N-1)
             x, y, t= self(np.arange(i0, i1))
-            v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,minV=2,maxV=7)
+            v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,D=D)
             v0[i0:i1],prob0[i0:i1]=self.getV(y)
         with open(fileName,'w+') as f:
             self.saveV(v,prob,f,T, np.arange(N))
@@ -1200,8 +1215,6 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     distL = np.zeros(N)
     SNR = np.zeros(N)
     for i in range(N):
-        if isFromO:   
-            sacsL[i][0] = seism.sacFromO(sacsL[i][0])
         distL[i] = sacsL[i][0].stats['sac']['dist']
         pos = np.abs(sacsL[i][0].data).argmax()
         dTime = pos*sacsL[i][0].stats['sac']['delta']+sacsL[i][0].stats['sac']['b']

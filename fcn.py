@@ -266,9 +266,9 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    w0 = model.config.lossFunc.w
+    w0 = 5#10##model.config.lossFunc.w
     for sigma in sigmaL:
-        model.config.lossFunc.w = w0*4/sigma
+        model.config.lossFunc.w = w0*(4/sigma)**0.5
         corrLTrain.timeDisKwarg['sigma']=sigma
         corrLTest.timeDisKwarg['sigma']=sigma
         corrLTest.iL=np.array([])
