@@ -23,7 +23,7 @@ class config:
         xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5,isCut=False,minDist=0,maxDist=1e8,\
-                minDDist=0,maxDDist=1e8,para={},isFromO=False):
+                minDDist=0,maxDDist=1e8,para={},isFromO=False,removeP=False):
         para0= {\
             'delta0'    :0.02,\
             'freq'      :[-1, -1],\
@@ -66,6 +66,7 @@ class config:
         self.maxDDist   = maxDDist
         self.para0      = para0
         self.isFromO    = isFromO
+        self.removeP    = removeP
     def getDispL(self):
         return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
             halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
@@ -195,7 +196,8 @@ class config:
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName,\
                 minSNR=minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
-                srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO)
+                srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO,\
+                removeP=self.removeP)
         return corrL
     def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
         corrL = []
@@ -215,7 +217,7 @@ class config:
                 ,srcSac=srcSac,minSNR=minSNR,isCut=self.isCut,\
                 minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist\
-                ,isFromO=self.isFromO)
+                ,isFromO=self.isFromO,removeP=self.removeP)
         return corrL
     def getSacFile(self,sacFile,randDrop=0.3,para={}):
         sacsL = []
@@ -804,8 +806,8 @@ class corr:
         self.maxCount = -1
         maxCount   = xx.shape[0]
         self.dtype = self.getDtype(maxCount)
-        self.xx    = xx.astype(np.complex)
-        self.timeL = timeL
+        self.xx    = xx.astype(np.complex64)
+        self.timeL = timeL.astype(np.float32)
         self.dDis  = dDis
         self.fs    = fs
         self.az    = az
@@ -817,8 +819,8 @@ class corr:
         self.name0 = name0
         self.name1 = name1
         self.srcSac= srcSac
-        self.x0 = x1
-        self.x0 = x1
+        self.x0 = x1.astype(np.float32)
+        self.x0 = x1.astype(np.float32)
     def output(self):
         return self.xx,self.timeL,self.dDis,self.fs
     def toDict(self):
@@ -913,8 +915,8 @@ class corr:
             return self.dtype
         else:
             self.maxCount=maxCount
-            corrType = np.dtype([ ('xx'       ,np.complex,maxCount),\
-                                  ('timeL'    ,np.float64,maxCount),\
+            corrType = np.dtype([ ('xx'       ,np.complex64,maxCount),\
+                                  ('timeL'    ,np.float32,maxCount),\
                                   ('dDis'     ,np.float64,1),\
                                   ('fs'       ,np.float64,1),\
                                   ('az'       ,np.float64,2),\
@@ -926,8 +928,8 @@ class corr:
                                   ('name0'    ,np.str,200),\
                                   ('name1'    ,np.str,200),\
                                   ('srcSac'   ,np.str,200),\
-                                  ('x0'    ,np.float64,maxCount),\
-                                  ('x1'    ,np.float64,maxCount)
+                                  ('x0'    ,np.float32,maxCount),\
+                                  ('x1'    ,np.float32,maxCount)
                                   ])
             return corrType
     def outputTimeDis(self,FV,T=np.array([5,10,20,30,50,80,100,150,200,250,300]),sigma=2,\
@@ -1172,6 +1174,16 @@ class corrL(list):
             plt.gca().semilogy()
             plt.savefig(fileName+'.jpg',dpi=300)
 
+            for i in range(dv.shape[0]):
+                indexL = validL(dv[i],prob[i],minProb=0.8,minV=-1,maxV=2)
+                if np.random.rand()<0.1:
+                        print('validL: ',indexL)
+                for iL in indexL:
+                    iL = np.array(iL).astype(np.int)
+                    plt.plot(dv[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
+            plt.xlim([2,7])
+            plt.gca().semilogy()
+            plt.savefig(fileName+'_dv.jpg',dpi=300)
             
 
     def ipin(self,dt,fs):
@@ -1209,7 +1221,10 @@ def corrSac(d,sac0,sac1,name0='',name1='',az=np.array([0,0]),dura=0,M=np.array([
 
 def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
-    maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False):
+    maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
+    removeP=False):
+    if removeP:
+        print('removeP')
     corrL = []
     N = len(sacsL)
     distL = np.zeros(N)
@@ -1219,10 +1234,20 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
         pos = np.abs(sacsL[i][0].data).argmax()
         dTime = pos*sacsL[i][0].stats['sac']['delta']+sacsL[i][0].stats['sac']['b']
         #print(pos,dTime,distL[i])
-        if dTime<distL[i]/5:
-            SNR[i] = 0
-            continue
         SNR[i] = np.abs(sacsL[i][0].data[pos])/sacsL[i][0].data[:int(pos/4)].std()
+        if removeP:
+
+            tStart = distL[i]/5
+            t0 = max(1,tStart-50+5*(np.random.rand()-0.5))
+            dt0 = t0 - sacsL[i][0].stats['sac']['b']
+            i0 = max(0,int(dt0/sacsL[i][0].stats['sac']['delta']))
+
+            tEnd = distL[i]/2.5
+            t1 = max(1,tEnd+100+5*(np.random.rand()-0.5))
+            dt1 = t1 - sacsL[i][0].stats['sac']['b']
+            i1 = min(sacsL[i][0].data.size,int(dt1/sacsL[i][0].stats['sac']['delta']))
+            sacsL[i][0].data[:i0]*=0
+            sacsL[i][0].data[i1:]*=0
     #print(SNR)
     print((SNR>minSNR).sum(),minSNR)
     iL = distL.argsort()
