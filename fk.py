@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import obspy
 import os
 from multiprocessing import Process, Manager
+import mathFunc
 defaultPath='fkRun/'
 orignExe = '/Users/jiangyiran/prog/fk/fk/'
 class FK:
@@ -179,28 +180,7 @@ class FK:
             dura = 8+40*np.random.rand()+i%12
             duraCount = int(dura/delta)
             data = np.zeros(count)
-            if i%4==0:
-                data[:duraCount] += 1
-                data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)
-            if i%4 ==1:
-                mid = int(duraCount/2)
-                data[:mid] = np.arange(mid)
-                data[mid:2*mid] = np.arange(mid-1,-1,-1)
-                data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*mid
-            if i%4 ==2:                
-                rise = 0.1+0.3*np.random.rand()
-                mid = int(duraCount/2)
-                i0 = int(duraCount*rise)
-                data[:duraCount] += i0
-                data[:i0] = np.arange(i0)
-                data[duraCount-i0:duraCount] = np.arange(i0-1,-1,-1)
-                data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*i0
-            if i%4 ==3:
-                T  = np.random.rand()*60+5
-                T0 = np.random.rand()*2*np.pi
-                data[:duraCount] = np.sin(np.arange(duraCount)/T*2*np.pi+T0)+1
-                data[:duraCount] += (np.random.rand(duraCount)-0.5)*0.1
-                data[:duraCount] *= np.random.rand(duraCount)+4
+            mathFunc.randomSource(i%4,duraCount,data)
             data/=data.sum()
             i+=1
             self.genSourceSac(file,data,delta=delta)

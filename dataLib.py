@@ -79,6 +79,12 @@ class filePath:
         return staDirL
     def getSensorDas(self,net,sta):
         staDirL = self.getStaDirL(net,sta)
+        if net == 'YP':
+            resp = glob('resp/YP/*%s*%s*Z'%(net,sta))
+            if len(resp)>0:
+                return resp[0], '130S','NECE'
+            else:
+                return 'UNKNOWN','UNKNOWN','UNKNOWN'
         if net == 'hima':
             logFileL=[]
             for staDir in staDirL:
@@ -138,17 +144,23 @@ class filePath:
                     return sensorName,dasName,sensorNum
                 else:
                     return 'UNKNOWN','UNKNOWN','UNKNOWN'
-    def getInventory(self,net,sta,sensorName='',dasName=''):
+    def getInventory(self,net,sta,sensorName='',dasName='',comp='BHZ'):
         respDir = 'resp/'
         if sensorName=='' or dasName=='':
             sensorName, dasName, sensorNum =self.getSensorDas(net,sta)
-        if sensorName not in self.InventoryD:
-            self.InventoryD[sensorName] = \
-            read_inventory('%s/%s.%s.resp'%(respDir,net,sensorName))
-        if dasName not in self.InventoryD:
-            self.InventoryD[dasName]=\
-            read_inventory('%s/%s.%s.resp'%(respDir,net,dasName))
-        return self.InventoryD[sensorName],self.InventoryD[dasName]
+        if net =='YP':
+            sensorName=sensorName[:-3]
+        if sensorName+comp not in self.InventoryD:
+            if net == 'hima':
+                file='%s/%s.%s.resp'%(respDir,net,sensorName)
+            if net == 'YP':
+                file = sensorName+comp
+            self.InventoryD[sensorName+comp] = read_inventory(file)
+        if dasName+comp not in self.InventoryD:
+            file = '%s/%s.%s.resp'%(respDir,net,dasName)
+            self.InventoryD[dasName+comp]=\
+            read_inventory(file)
+        return self.InventoryD[sensorName+comp],self.InventoryD[dasName+comp]
 
 
 #/media/jiangyr/shanxidata21/nmSacData/GS.HXP//201410//GS.HXP.20141001.BHZ.SAC

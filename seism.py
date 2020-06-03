@@ -175,8 +175,13 @@ class Station(Dist):
         else:
             return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+infoStr+'.'+self['compBase']+comp for comp in strL]
     def getInventory(self):
-        self.sensor, self.das=  self['nameFunc'].getInventory(self['net'],self['sta'],\
-            self['sensorName'],self['dasName'])
+        self.sensor=[]
+        self.das=[]
+        for i in range(3):
+            sensor, das=  self['nameFunc'].getInventory(self['net'],self['sta'],\
+                self['sensorName'],self['dasName'],comp=self['comp'][i])
+            self.sensor.append(sensor)
+            self.das.append(das)
         return self.sensor,self.das
     def getSensorDas(self):
         if self['sensorName'] == '' or self['dasName']=='':
@@ -184,6 +189,9 @@ class Station(Dist):
             self['sensorName'] = sensorName
             self['dasName']    = dasName
             self['sensorNum'] = sensorNum
+            if self['net'] == 'YP':
+                self['compBase']=self['sensorName'][-3:-1]
+                self['comp'] = [self['compBase']+s for s in 'ENZ' ]
         return self['sensorName'],self['dasName'],self['sensorNum']
 
 class StationList(list):
@@ -263,7 +271,7 @@ class Record(Dist):
     def select(self,req):
         return True
 
-
+defaultStrL='ENZ'
 class Quake(Dist):
     def __init__(self,*argv,**kwargs):
         super().__init__(*argv,**kwargs)
@@ -434,16 +442,24 @@ class Quake(Dist):
                             plt.plot(timeL,data/data.std(),'b',linewidth=0.5)
                     if remove_resp and respDone==False:
                         print('remove_resp ',station)
-                        sensor = station.sensor
-                        das    = station.das
-                        for sac in sacsL[-1]:
+                        
+                        for channelIndex in range(3):
+                            sac = sacsL[-1][channelIndex]
+                            channelIndexO = defaultStrL.index(strL[channelIndex])
+                            sensor = station.sensor[channelIndexO]
+                            das    = station.das[channelIndexO]
                             originStats={}
                             for key in station.defaultStats:
                                 originStats[key] = sac.stats[key]
-                            sac.stats.update(station.defaultStats)
+                            if station['net'] == 'hima':
+                                sac.stats.update(station.defaultStats)
+                            #print(sac.stats)
+                            if station['net'] == 'YP':
+                                sac.stats.update({'channel': station['compBase']+strL[channelIndex]})
                             #print(sac.stats)
                             sac.remove_response(inventory=sensor,\
-                            output="VEL",water_level=60)
+                            output="VEL",water_level=60)                           
+                            sac.stats.update(station.defaultStats)
                             sac.remove_response(inventory=das,\
                             output="VEL",water_level=60)
                             sac.stats.update(originStats)

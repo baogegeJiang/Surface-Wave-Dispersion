@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
-from mathFunc import getDetec,xcorrSimple,xcorrComplex,flat,validL
+from mathFunc import getDetec,xcorrSimple,xcorrComplex,flat,validL,randomSource
 from numba import jit,float32, int64
 from scipy import fftpack,interpolate
 from fk import FK,getSourceSacName,FKL
@@ -176,7 +176,8 @@ class config:
         tmpName+='_%s_%s_%d'%(self.getMode,pog,self.order)
         print(tmpName)
         return fv(tmpName,'file')
-    def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1):
+    def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1,
+        isLoadFv=False,fvD={}):
         corrL = []
         disp = self.getDispL()[0]
         if minSNR <0:
@@ -197,7 +198,7 @@ class config:
                 minSNR=minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
                 srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO,\
-                removeP=self.removeP)
+                removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv)
         return corrL
     def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
         corrL = []
@@ -226,7 +227,12 @@ class config:
         print(self.para0)
         with open(sacFile) as f:
             lines = f.readlines()
-
+        srcData = ''
+        if np.random.rand()<randDrop:
+            duraCount = int(20+200*np.random.rand())
+            srcData = np.zeros(duraCount)
+            randomSource(4,duraCount,srcData)
+            print('convolve data')
         for line in lines:
             if line[0]=='#':
                 srcSac = line[1:]
@@ -236,9 +242,10 @@ class config:
             sacNames = line.split()
             sacNamesL.append(sacNames)
             sacsL.append( [obspy.read(sacName)[0] for sacName in sacNames])
-
             if self.para0['freq'][0] > 0:
                 for sac in sacsL[-1]:
+                    if len(srcData)>0:
+                        sac.data=np.convolve(sac.data,srcData,'same')
                     sac.filter(self.para0['filterName'],\
                         freqmin=self.para0['freq'][0], freqmax=self.para0['freq'][1], \
                         corners=self.para0['corners'], zerophase=self.para0['zerophase'])
@@ -249,6 +256,16 @@ class config:
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
                 remove_resp=remove_resp,para=self.para0)
         return seism.Noises(sacsL,mul=mul)
+    def loadNEFV(self,stations):
+        fvD = {}
+        for i in range(len(stations)):
+            for j in range(len(stations)):
+                file = glob('model/NFFV/*%s_%s*'%(station[i]['sta'],station[j]['sta']))
+                pairKey = '*%s_%s*'%(station[i]['sta'],station[j]['sta'])
+                if len(file)>0:
+                    fvD[pairKey] = FV(file[0],mode='NEFile')
+
+
 
         
 
@@ -680,8 +697,8 @@ class model:
                 rho = layer.rho
                 if fkMode == 0:
                     vp/=vs
-                print('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rho))
-                f.write('%.2f %.2f %.2f %.2f 1200 600'%(thickness, vs, vp, rho))
+                print('%.2f %.2f %.2f %.2f %d %d'%(thickness, vs, vp, rho,layer.Qp,layer.Qs))
+                f.write('%.2f %.2f %.2f %.2f %d %d'%(thickness, vs, vp, rho,layer.Qp,layer.Qs))
                 if i!= self.layerN-1:
                     f.write('\n')
     def outputZV(self):
@@ -785,9 +802,21 @@ class fv:
             fvM = np.loadtxt(input)
             self.f = fvM[:,0]
             self.v = fvM[:,1]
+        if mode == 'NEFile':
+            T = []
+            v = []
+            with open(input) as f:
+                lines = f.readlines()
+            for line in lines:
+                tmp = line.split()
+                T.append(float(tmp[0]))
+                v.append(float(tmp[1]))
+            self.f = 1/np.array(T)
+            self.v = np.array(v)
         self.interp = self.genInterp()
     def genInterp(self):
-        return interpolate.interp1d(self.f,self.v,kind='linear')
+        return interpolate.interp1d(self.f,self.v,kind='linear',\
+            bounds_error=False,fill_value=1e-8)
     def __call__(self,f):
         return self.interp(f)
     def save(self,filename):
@@ -1018,7 +1047,7 @@ class corrL(list):
         res    = np.zeros([len(T),len(bins)-1])
         for i in range(len(T)):
             res[i,:],tmp=np.histogram(dPosRL[:,i],bins,density=True)
-        plt.pcolor(bins[:-1],1/T,res)
+        plt.pcolor(bins[:-1],1/T,res,cmap='bwr')
         #plt.scatter(dPosL,fL,s=0.5,c = dDisL/2000,alpha=0.3)
         plt.xlabel('erro Ratio /(s/s)')
         plt.ylabel('f/Hz')
@@ -1164,7 +1193,7 @@ class corrL(list):
             dv = np.abs(v-v0)
             plt.close()
             for i in range(dv.shape[0]):
-                indexL = validL(dv[i],prob[i],minProb=0.8,minV=-1,maxV=2)
+                indexL = validL(dv[i],prob[i],minProb=0.75,minV=-1,maxV=2)
                 if np.random.rand()<0.1:
                         print('validL: ',indexL)
                 for iL in indexL:
@@ -1172,16 +1201,20 @@ class corrL(list):
                     plt.plot(v[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
             plt.xlim([2,7])
             plt.gca().semilogy()
+            plt.xlabel('v/(m/s)')
+            plt.ylabel('f/Hz')
             plt.savefig(fileName+'.jpg',dpi=300)
 
             for i in range(dv.shape[0]):
-                indexL = validL(dv[i],prob[i],minProb=0.8,minV=-1,maxV=2)
+                indexL = validL(dv[i],prob[i],minProb=0.75,minV=-1,maxV=2)
                 if np.random.rand()<0.1:
                         print('validL: ',indexL)
                 for iL in indexL:
                     iL = np.array(iL).astype(np.int)
                     plt.plot(dv[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
             plt.xlim([2,7])
+            plt.xlabel('dv/(m/s)')
+            plt.ylabel('f/Hz')
             plt.gca().semilogy()
             plt.savefig(fileName+'_dv.jpg',dpi=300)
             
@@ -1222,7 +1255,7 @@ def corrSac(d,sac0,sac1,name0='',name1='',az=np.array([0,0]),dura=0,M=np.array([
 def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
-    removeP=False):
+    removeP=False,isLoadFv=False,fvD={}):
     if removeP:
         print('removeP')
     corrL = []
@@ -1281,6 +1314,15 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
              
             #tmp = corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile)
             #print(np.imag(tmp.xx))
+            if isLoadFv:
+                modelFile0 = sac0.stats['sac']['station']+'_'+sac1.stats['sac']['station']
+                modelFile1 = sac1.stats['sac']['station']+'_'+sac0.stats['sac']['station']
+                if modeFile0  in fvD:
+                    modeFile = modeFile0
+                if modeFile1  in fvD:
+                    modeFile = modeFile1
+                if modeFile0 not  in fvD and modeFile1 not in fvD:
+                    continue
             corrL.append(corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile,srcSac,isCut=isCut))
     return corrL        
 

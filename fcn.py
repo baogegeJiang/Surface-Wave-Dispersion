@@ -13,6 +13,16 @@ class lossFuncSoft:
     def __call__(self,y0,yout0):
         y1 = 1-y0
         yout1 = 1-yout0
+        return -K.mean((self.w*y0*K.log(yout0+1e-8)+y1*K.log(yout1+1e-8))*\
+            K.max(y0,axis=1, keepdims=True),\
+            axis=-1)
+
+class lossFuncSoftBak:
+    def __init__(self,w=1):
+        self.w=w
+    def __call__(self,y0,yout0):
+        y1 = 1-y0
+        yout1 = 1-yout0
         return -K.mean(self.w*y0*K.log(yout0+1e-8)+y1*K.log(yout1+1e-8),axis=-1)
 
 def hitRate(yin,yout,maxD=10):
@@ -92,6 +102,8 @@ class fcnConfig:
         self.featureL   = [min(2**(i+1)+40,100) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]
         self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
         self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
+        #self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
+        #self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
         self.dropOutL   = []#[1,3,5]
         self.dropOutRateL= []#[0.2,0.2,0.2]
         self.activationL= ['relu','relu','relu','relu','relu',\
@@ -214,6 +226,8 @@ class model(Model):
             if len(time0L)>0:
                 timeL+=time0L[i]
             xlim=[timeL[0],timeL[-1]]
+            xlimNew=[0,2000]
+            #xlim=xlimNew
             tmpy0=y0[i,:,0,:]
             pos0  =tmpy0.argmax(axis=0)
             tmpy=y[i,:,0,:]
@@ -231,18 +245,18 @@ class model(Model):
             plt.subplot(3,1,2)
             #plt.clim(0,1)
             plt.pcolor(timeL,f,y0[i,:,0,:].transpose(),cmap='bwr',vmin=0,vmax=1)
-            plt.plot(timeL[pos.astype(np.int)],f,'k',linewidth=0.5)
+            plt.plot(timeL[pos.astype(np.int)],f,'k',linewidth=0.5,alpha=0.5)
             plt.ylabel('f/Hz')
             plt.gca().semilogy()
-            plt.xlim(xlim)
+            plt.xlim(xlimNew)
             plt.subplot(3,1,3)
             plt.pcolor(timeL,f,y[i,:,0,:].transpose(),cmap='bwr',vmin=0,vmax=1)
             #plt.clim(0,1)
-            plt.plot(timeL[pos0.astype(np.int)],f,'k',linewidth=0.5)
+            plt.plot(timeL[pos0.astype(np.int)],f,'k',linewidth=0.5,alpha=0.5)
             plt.ylabel('f/Hz')
             plt.xlabel('t/s')
             plt.gca().semilogy()
-            plt.xlim(xlim)
+            plt.xlim(xlimNew)
             plt.savefig('%s%s%d.jpg'%(outputDir,fileStr,i),dpi=200)
     def predictRaw(self,x):
         yShape = list(x.shape)
@@ -258,7 +272,7 @@ class model(Model):
     def set(self,modelOld):
         self.set_weights(modelOld.get_weights())
 
-tTrain = (16**np.arange(0,1.000001,1/29))*10
+tTrain = (10**np.arange(0,1.000001,1/29))*16
 def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     sigmaL=[4,3,2,1.5]):
     '''
@@ -266,7 +280,7 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    w0 = 5#10##model.config.lossFunc.w
+    w0 = 10#5#10##model.config.lossFunc.w
     for sigma in sigmaL:
         model.config.lossFunc.w = w0*(4/sigma)**0.5
         corrLTrain.timeDisKwarg['sigma']=sigma

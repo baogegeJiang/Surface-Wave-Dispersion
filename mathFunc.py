@@ -168,4 +168,32 @@ def validL(v,prob, minProb = 0.7,minV=2,maxV=6):
     return l
 
 
-
+def randomSource(i,duraCount,data):
+    if i==0:
+        data[:duraCount] += 1
+        data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)
+    if i ==1:
+        mid = int(duraCount/2)
+        data[:mid] = np.arange(mid)
+        data[mid:2*mid] = np.arange(mid-1,-1,-1)
+        data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*mid
+    if i==2:                
+        rise = 0.1+0.3*np.random.rand()
+        mid = int(duraCount/2)
+        i0 = int(duraCount*rise)
+        data[:duraCount] += i0
+        data[:i0] = np.arange(i0)
+        data[duraCount-i0:duraCount] = np.arange(i0-1,-1,-1)
+        data[:duraCount] += np.random.rand()*0.3*np.random.rand(duraCount)*i0
+    if i ==3:
+        T  = np.random.rand()*60+5
+        T0 = np.random.rand()*2*np.pi
+        data[:duraCount] = np.sin(np.arange(duraCount)/T*2*np.pi+T0)+1
+        data[:duraCount] += (np.random.rand(duraCount)-0.5)*0.1
+        data[:duraCount] *= np.random.rand(duraCount)+4
+    if i == 4:
+        T  = np.random.rand()*40+5
+        T0 = np.random.rand()*2*np.pi
+        data[:duraCount] = np.sin(np.arange(duraCount)/T*2*np.pi+T0)
+        data[:duraCount] += (np.random.rand(duraCount)-0.5)*0.1
+        data[:duraCount] *= np.random.rand(duraCount)+2
