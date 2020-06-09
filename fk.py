@@ -207,7 +207,7 @@ class fkL(list) :
             p.join()
             print('######',i)
             i+=1
-    def clear(self):
+    def clear(self):2
         for f in self:
             f.clear()
 

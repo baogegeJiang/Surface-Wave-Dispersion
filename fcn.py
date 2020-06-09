@@ -39,8 +39,8 @@ def hitRateNp(yin,yout,maxD=6,K=np):
     d       = K.abs(yinPos - youtPos)
     #print(d)
     print(d.mean(axis=(0,1)))
-    count   = K.sum(d>-0.1)
-    hitCount= K.sum(d<maxD)
+    count   = K.sum(yin.max(axis=1)>0.5)
+    hitCount= K.sum((d<maxD)*(yin.max(axis=1)>0.5))
     return hitCount/count
 
 def inAndOutFunc(config):
@@ -201,6 +201,10 @@ class model(Model):
                     loss    = self.evaluate(self.inx(xTest),yTest)
                     if loss >= lossMin:
                         count -= 1
+                    if loss > 3*lossMin:
+                        self.set_weights(w0)
+                        #count = count0
+                        print('reset to smallest')
                     if loss < lossMin:
                         count = count0
                         lossMin = loss

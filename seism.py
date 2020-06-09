@@ -7,6 +7,7 @@ from distaz import DistAz
 import os 
 import random
 from matplotlib import pyplot as plt
+import time
 fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
@@ -333,7 +334,7 @@ class Quake(Dist):
         return [record['staIndex'] for record in self.records]
     def resDir(self,resDir):
         return '%s/%s/'%(resDir,self.name(s='_'))
-    def cutSac(self, stations,bTime=-100,eTime=3000,resDir = 'eventSac/',para={},byRecord=True):
+    def cutSac(self, stations,bTime=-100,eTime=3000,resDir = 'eventSac/',para={},byRecord=True,isSkip=False):
         time0  = self['time'] + bTime
         time1  = self['time'] + eTime
         tmpDir = self.resDir(resDir)
@@ -347,6 +348,13 @@ class Quake(Dist):
             if staIndex in staIndexs:
                 record = self.records[staIndexs.index(staIndex)]
             resSacNames = station.baseSacName(tmpDir)
+            isF = True
+            for resSacName in resSacNames:
+                if not os.path.exists(resSacName):
+                    isF = False
+            if isF and isSkip:
+                print(resSacNames,'done')
+                continue
             sacsL = station.getFileNames(time0,time1+2)
             for i in range(3):
                 sacs = sacsL[i]
@@ -377,7 +385,7 @@ class Quake(Dist):
         return None
     def getSacFiles(self,stations,isRead=False,resDir = 'eventSac/',strL='ENZ',\
         byRecord=True,maxDist=-1,minDist=-1,remove_resp=False,isPlot=False,\
-        isSave=False,respStr='_remove_resp',para={}):
+        isSave=False,respStr='_remove_resp',para={},isSkip=False):
         sacsL = []
         staIndexs = self.staIndexs()
         tmpDir = self.resDir(resDir)
@@ -402,6 +410,20 @@ class Quake(Dist):
                 if sensorName=='UNKNOWN' or sensorName==''  \
                 or dasName=='UNKNOWN' or dasName=='':
                     continue
+                if station['net']=='YP':
+                    rigthResp = True
+                    for channelIndex in range(3):
+                        #channelIndexO = defaultStrL.index(strL[channelIndex])
+                        if station.sensor[channelIndex][0].code != station['net'] or \
+                            station.sensor[channelIndex][0][0].code != station['sta'] or \
+                            station.sensor[channelIndex][0][0][0].code != station['comp'][channelIndex]:
+                            print('no Such Resp')
+                            print(station.sensor[channelIndex][0][0][0].code,station['comp'][channelIndex])
+                            time.sleep(1)
+                            rigthResp=False
+                    if rigthResp == False:
+                        print('#### no Such Resp')
+                        continue
             if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
                 continue
             if staIndex in staIndexs:
@@ -411,6 +433,7 @@ class Quake(Dist):
             if minDist>0 and self.dist(station)<minDist:
                 continue
             resSacNames = station.baseSacName(tmpDir,strL=strL)
+            respDone = False
             if remove_resp and isSave==False:
                 isF = True
                 resSacNames = station.baseSacName(tmpDir,strL=strL,infoStr=respStr)
@@ -420,13 +443,25 @@ class Quake(Dist):
                         break
                 if isF:
                     respDone = True
+                    print(station,'done')
                 else:
                     resSacNames = station.baseSacName(tmpDir,strL=strL)
-                    
+            if remove_resp and isSkip==True and isSave==True:
+                isF = True
+                resSacNamesTmp = station.baseSacName(tmpDir,strL=strL,infoStr=respStr)
+                for resSacName in resSacNamesTmp:
+                    if not os.path.exists(resSacName):
+                        isF = False
+                        print('need do')
+                        break
+                if isF:
+                    print(station,'done')
+                    continue   
             isF = True
             for resSacName in resSacNames:
                 if not os.path.exists(resSacName):
                     isF = False
+                    print('no origin sac')
                     break
             if isF == True:
                 if isRead:
@@ -456,7 +491,8 @@ class Quake(Dist):
                             #print(sac.stats)
                             if station['net'] == 'YP':
                                 sac.stats.update({'channel': station['compBase']+strL[channelIndex]})
-                            #print(sac.stats)
+                                sac.stats.update({'knetwk': station['net'],'network': station['net']})
+                            #print(sac.stats,sensor)
                             sac.remove_response(inventory=sensor,\
                             output="VEL",water_level=60)                           
                             sac.stats.update(station.defaultStats)

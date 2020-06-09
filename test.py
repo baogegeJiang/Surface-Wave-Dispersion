@@ -223,7 +223,7 @@ para={\
 'corners':4,
 'maxA':1e10,
 }
-quakes[:50].cutSac(stations,bTime=-10,eTime =4096,\
+quakes[50:1000].cutSac(stations,bTime=-10,eTime =4096,\
     para=para,byRecord=False)
 for quake in quakes[:50]:
     quake.getSacFiles(stations,isRead=True,remove_resp=True,\

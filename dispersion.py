@@ -11,6 +11,7 @@ import obspy
 from multiprocessing import Process, Manager
 import random
 import seism
+from glob import glob
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -260,10 +261,14 @@ class config:
         fvD = {}
         for i in range(len(stations)):
             for j in range(len(stations)):
-                file = glob('model/NFFV/*%s_%s*'%(station[i]['sta'],station[j]['sta']))
-                pairKey = '*%s_%s*'%(station[i]['sta'],station[j]['sta'])
+                file = glob('models/NEFV/*%s*%s*'%(stations[i]['sta'],stations[j]['sta']))
+                #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
+                pairKey = '%s_%s'%(stations[i]['sta'],stations[j]['sta'])
                 if len(file)>0:
-                    fvD[pairKey] = FV(file[0],mode='NEFile')
+                    fvD[pairKey] = fv(file[0],mode='NEFile')
+                    if (i*j)%100==0:
+                        print(pairKey)
+        return fvD
 
 
 
@@ -807,7 +812,7 @@ class fv:
             v = []
             with open(input) as f:
                 lines = f.readlines()
-            for line in lines:
+            for line in lines[3:]:
                 tmp = line.split()
                 T.append(float(tmp[0]))
                 v.append(float(tmp[1]))
@@ -1282,7 +1287,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             sacsL[i][0].data[:i0]*=0
             sacsL[i][0].data[i1:]*=0
     #print(SNR)
-    print((SNR>minSNR).sum(),minSNR)
+    print((SNR>minSNR).sum(),minSNR,isLoadFv,len(fvD))
     iL = distL.argsort()
     for ii in range(N):
         for jj in range(ii):
@@ -1315,13 +1320,13 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             #tmp = corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile)
             #print(np.imag(tmp.xx))
             if isLoadFv:
-                modelFile0 = sac0.stats['sac']['station']+'_'+sac1.stats['sac']['station']
-                modelFile1 = sac1.stats['sac']['station']+'_'+sac0.stats['sac']['station']
-                if modeFile0  in fvD:
-                    modeFile = modeFile0
-                if modeFile1  in fvD:
-                    modeFile = modeFile1
-                if modeFile0 not  in fvD and modeFile1 not in fvD:
+                modelFile0 = sac0.stats['station']+'_'+sac1.stats['station']
+                modelFile1 = sac1.stats['station']+'_'+sac0.stats['station']
+                if modelFile0  in fvD:
+                    modelFile = modelFile0
+                if modelFile1  in fvD:
+                    modelFile = modelFile1
+                if modelFile0 not  in fvD and modelFile1 not in fvD:
                     continue
             corrL.append(corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile,srcSac,isCut=isCut))
     return corrL        
