@@ -178,13 +178,19 @@ class config:
         print(tmpName)
         return fv(tmpName,'file')
     def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1,
-        isLoadFv=False,fvD={},isByQuake=False):
+        isLoadFv=False,fvD={},isByQuake=False,quakesRef=[]):
         corrL = []
         disp = self.getDispL()[0]
         if minSNR <0:
             minSNR = self.minSNR
         self.para0.update(para)
         for quake in quakes:
+            if isByQuake:
+                quakeName=quake.name('_')
+            else:
+                quakeName=''
+            if len(quakesRef)>0:
+                quake= quakesRef.find(quake)
             sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
                 remove_resp=remove_resp,para=self.para0)
@@ -195,10 +201,7 @@ class config:
             if self.isFromO:
                 for sacs in sacsL:
                     sacs[0] = seism.sacFromO(sacs[0])
-            if isByQuake:
-                quakeName=quake.name('_')
-            else:
-                quakeName=''
+            
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName,\
                 minSNR=minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\

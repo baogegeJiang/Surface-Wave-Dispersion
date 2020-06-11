@@ -586,6 +586,14 @@ class QuakeL(list):
             quakesNew.inRecord = self.inRecord
             quakesNew.kyes = self.keys
         return quakesNew
+    def find(self,quake0):
+        for i in range(len(self)):
+            dTime = np.abs(self[i]['time']-quake0['time'])
+            dLa = np.abs(self[i]['la']-quake0['lo'])
+            dLa = np.abs(self[i]['lo']-quake0['la'])
+            if dTime<10 and dLa<0.2 and dLo<0.2:
+                return i
+        return -1
     def read(self,file,**kwargs):
         if 'keys' in kwargs:
             self.keys = kwargs['keys']
