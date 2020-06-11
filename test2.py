@@ -44,7 +44,7 @@ stations.getSensorDas()
 stations.getInventory()
 
 fvNED = config.loadNEFV(stations)
-config.plotFVL(fvNED,pog='p')
+#config.plotFVL(fvNED,pog='p')
 fvALLD = {}
 fvALLD.update(fvNED)
 fvALLD.update(fvPD)
@@ -71,6 +71,7 @@ for p in pL:
 tTrain = np.array([5,10,20,30,50,80,100,150,200,250])
 tTrain = np.array([5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250])
 tTrain = (10**np.arange(0,1.000001,1/29))*16
+tTrain = (10**np.arange(0,1.000001,1/29))*10
 
 
 i = 0
@@ -88,25 +89,36 @@ stationsTrain.getSensorDas()
 stationsTrain.getInventory()
 
 quakesTrain   = seism.QuakeL('phaseLNE')
-corrLQuakeP = d.corrL(config.quakeCorr(quakes[:],stationsTrain,\
-    False,remove_resp=True,minSNR=40,isLoadFv=True,fvD=fvNED))
-corrLTrain     =  d.corrL(corrLQuakeP+corrLP)
-corrLTrain.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
-byT=False,noiseMul=0.0)
-stationsTrain = seism.StationList('stations/NEsta_all.locSensorDas')
-stationsTrain.getSensorDas()
-stationsTrain.getInventory()
-fvALLD = fvNED+{}
-quakesTrain   = seism.QuakeL('phaseLNE')
 corrLQuakeP = d.corrL(config.quakeCorr(quakesTrain[:],stationsTrain,\
     False,remove_resp=True,minSNR=40,isLoadFv=True,fvD=fvNED))
+
+corrLP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,\
+byT=False,noiseMul=0.0)
+corrLTestP.setTimeDis(fvPDTest,tTrain,sigma=4,\
+maxCount=4096,byT=False,noiseMul=0.0)
+
+corrLTrain     =  d.corrL(corrLQuakeP+corrLP[:30000])
+corrLTrain.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
+byT=False,noiseMul=0.0)
+
+stationsTest = seism.StationList('stations/staLstNMV2SelectNew')
+stationsTest.getSensorDas()
+stationsTest.getInventory()
+fvALLD = fvNED+{}
+quakesTest   = seism.QuakeL('phaseL')
+corrLQuakePTest = d.corrL(config.quakeCorr(quakesTest[:100],stationsTrain,\
+    False,remove_resp=True,minSNR=40,isLoadFv=True,fvD=fvNED))
+corrLQuakePTest.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
+byT=False,noiseMul=0.0)
 corrLTest     =  d.corrL(corrLQuakeP+[])
 corrLTest.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
 byT=False,noiseMul=0.0)
-
-fcn.trainAndTest(modelP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
-
-xQuake, yQuake, tQuake =corrLQuakeP(np.arange(0,400,10))
+modelPReal = fcn.model(channelList=[0])
+modelPSyn = fcn.model(channelList=[0])
+#fcn.trainAndTest(modelP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,3],tTrain=tTrain)
+#fcn.trainAndTest2(modelP,corrLP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
+fcn.trainAndTestGetSet(modelPReal,modelPSyn,corrLP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
+xQuake, yQuake, tQuake =corrLQuakePTest(np.arange(0,400,10))
 modelP.show(xQuake, yQuake,time0L=tQuake,delta=1.0,T=tTrain,\
         outputDir='predict/R_P')
 corrLQuakePNew = d.corrL(corrLQuakeP[0:40000:10])

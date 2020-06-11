@@ -139,9 +139,9 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     
 
 i = 0
-stations = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck')
+stations = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck') + seism.StationList('stations/NEsta_all.locSensorDas')
 stations.getInventory()
-noises=seism.QuakeL('noiseL')
+noises=seism.QuakeL('noiseL') + seism.QuakeL('noiseLNE')
 n = config.getNoise(noises,stations,mul=3,para=para,\
     byRecord=False,remove_resp=True)
 n.mul = 2
@@ -223,12 +223,26 @@ para={\
 'corners':4,
 'maxA':1e10,
 }
-quakes[50:1000].cutSac(stations,bTime=-10,eTime =4096,\
-    para=para,byRecord=False)
-for quake in quakes[:50]:
+quakes[:1000].cutSac(stations,bTime=-10,eTime =4096,\
+    para=para,byRecord=False,isSkip=True)
+for quake in quakes[:]:
+    quake.getSacFiles(stations,isRead=True,remove_resp=True,\
+        isPlot=False,isSave=True,para={'freq'      :[0.8/3e2,0.8/2]},isSkip=True)
+quakes   = seism.QuakeL('phaseLNE')
+noises = quakes.copy()
+for noise in noises:
+    noise['time']-=5000
+
+noises.write('noiseLNE')
+noises=seism.QuakeL('noiseLNE')
+stations = seism.StationList('stations/NEsta_all.locSensorDas')
+stations.getInventory()
+noises[0:100:5].cutSac(stations,bTime=-10,eTime =4096,para=para,byRecord=False)
+#noises[:10].getSacFiles(stations)
+#quakes[:10].getSacFiles(stations)
+for quake in noises:
     quake.getSacFiles(stations,isRead=True,remove_resp=True,\
         isPlot=False,isSave=True,para={'freq'      :[0.8/3e2,0.8/2]})
-
 
 stations = seism.StationList('stations/staLstNMV2SelectNew')
 stations.getSensorDas()

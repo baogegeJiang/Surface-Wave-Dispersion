@@ -822,8 +822,14 @@ class fv:
     def genInterp(self):
         return interpolate.interp1d(self.f,self.v,kind='linear',\
             bounds_error=False,fill_value=1e-8)
-    def __call__(self,f):
-        return self.interp(f)
+    def __call__(self,f,threshold=0.1):
+        shape0 =f.shape
+        f = f.reshape([-1])   
+        vL =  self.interp(f)
+        #print((np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1).shape)
+        dfR = (np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1)/f
+        vL[dfR>threshold]=vL[dfR>threshold]*0+1e-8
+        return vL.reshape(shape0)
     def save(self,filename):
         np.savetxt(filename, np.concatenate([self.f.reshape([-1,1]),\
             self.v.reshape([-1,1])],axis=1))

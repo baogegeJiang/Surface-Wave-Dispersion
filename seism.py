@@ -203,6 +203,10 @@ class StationList(list):
                 self.append(sta)
         if isinstance(argv[0],str):
             self.read(argv[0])
+    def __add__(self,self1):
+        for station in self1:
+            self.append(station)
+        return self
     def read(self,fileName):
         self.header = []
         with open(fileName,'r') as staFile:
@@ -570,6 +574,10 @@ class QuakeL(list):
                     self.append(tmp)
         if 'file' in kwargs:
             self.read(kwargs['file'],**kwargs)
+    def __add__(self,self1):
+        for quake in self1:
+            self.append(quake)
+        return self
     def __getitem__(self,index):
         quakesNew = super().__getitem__(index)
         if isinstance(index,slice):
