@@ -178,7 +178,7 @@ class config:
         print(tmpName)
         return fv(tmpName,'file')
     def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1,
-        isLoadFv=False,fvD={}):
+        isLoadFv=False,fvD={},isByQuake=False):
         corrL = []
         disp = self.getDispL()[0]
         if minSNR <0:
@@ -195,11 +195,15 @@ class config:
             if self.isFromO:
                 for sacs in sacsL:
                     sacs[0] = seism.sacFromO(sacs[0])
+            if isByQuake:
+                quakeName=quake.name('_')
+            else:
+                quakeName=''
             corrL += corrSacsL(disp,sacsL,sacNamesL,modelFile=self.originName,\
                 minSNR=minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
                 srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO,\
-                removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv)
+                removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv,quakeName=quakeName)
         return corrL
     def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
         corrL = []
@@ -269,7 +273,19 @@ class config:
                     if (i*j)%100==0:
                         print(pairKey)
         return fvD
-
+    def loadQuakeNEFV(self,stations):
+        fvD = {}
+        quakeD={}
+        for i in range(len(stations)):
+            for j in range(len(stations)):
+                #\YP.NE11\YP.NE11_YP.NE3A\Rayleigh
+                #print('models/QuakeNEFV/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(stations[i]['sta'],stations[j]['sta']))
+                file = glob('models/QuakeNEFV/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(stations[i]['sta'],stations[j]['sta']))
+                #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
+                if len(file)==1:
+                    print(file[0])
+                    getFVFromPairFile(file[0],fvD,quakeD)
+        return fvD,seism.QuakeL([quakeD[key] for key in quakeD])
 
 
         
@@ -834,6 +850,81 @@ class fv:
         np.savetxt(filename, np.concatenate([self.f.reshape([-1,1]),\
             self.v.reshape([-1,1])],axis=1))
 
+def getFVFromPairFile(file,fvD={},quakeD={}):
+    with open(file) as f :
+        lines = f.readlines()
+    stat='next'
+    for line in lines:
+        print(stat)
+        if stat=='next':
+            sta0 = line.split()[0]
+            sta1 = line.split()[1]
+            stat = 'comp0'
+            continue
+        if stat=='comp0':
+            stat ='quakeTime0'
+            continue
+        if stat =='quakeTime0':
+            timeL =[int(tmp) for tmp in line.split()[:-1]]
+            timeL.append(float(line.split()[-1]))
+            time = obspy.UTCDateTime(*timeL)
+            stat='sta1Loc'
+            continue
+        if stat=='sta1Loc':
+            stat='QuakeInfo0'
+            continue
+        if stat=='QuakeInfo0':
+            la = float(line.split()[0])
+            lo = float(line.split()[1])
+            dep= float(line.split()[2])
+            ml = float(line.split()[3])
+            stat='deltaLoc0'
+            continue
+        if stat=='deltaLoc0':
+            stat='comp1'
+            continue
+        if stat=='comp1':
+            stat ='quakeTime1'
+            continue
+        if stat =='quakeTime1':
+            stat='sta0Loc'
+            continue
+        if stat=='sta0Loc':
+            stat='QuakeInfo1'
+            continue
+        if stat=='QuakeInfo1':
+            stat='deltaLoc1'
+            continue
+        if stat=='deltaLoc1':
+            stat='fNum'
+            continue
+        if stat== 'fNum':
+            fNum = int(line.split()[1])
+            f = np.zeros(fNum)
+            v = np.zeros(fNum)
+            stat= 'f'
+            i =0
+            continue
+        if stat=='f':
+            f[i]=float(line)
+            i+=1
+            if i ==fNum:
+                stat='v'
+                i=0
+                continue
+        if stat=='v':
+            v[i]=float(line)
+            i+=1
+            if i ==fNum:
+                quake = seism.Quake(time=time,la=la,lo=lo,dep=dep,ml=ml)
+                name = quake.name('_')
+                if name not in quakeD:
+                    quakeD[name]=quake
+                key='%s_%s_%s'%(name,sta0,sta1)
+                fvD[key]=fv([f,v])
+                stat='next'
+                continue
+
 
 
 
@@ -1266,7 +1357,7 @@ def corrSac(d,sac0,sac1,name0='',name1='',az=np.array([0,0]),dura=0,M=np.array([
 def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
-    removeP=False,isLoadFv=False,fvD={}):
+    removeP=False,isLoadFv=False,fvD={},quakeName=''):
     if removeP:
         print('removeP')
     corrL = []
@@ -1328,6 +1419,9 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             if isLoadFv:
                 modelFile0 = sac0.stats['station']+'_'+sac1.stats['station']
                 modelFile1 = sac1.stats['station']+'_'+sac0.stats['station']
+                if quakeName!='':
+                   modelFile0=quakeName+'_'+modelFile0 
+                   modelFile1=quakeName+'_'+modelFile1 
                 if modelFile0  in fvD:
                     modelFile = modelFile0
                 if modelFile1  in fvD:

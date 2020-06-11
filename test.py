@@ -144,7 +144,7 @@ stations.getInventory()
 noises=seism.QuakeL('noiseL') + seism.QuakeL('noiseLNE')
 n = config.getNoise(noises,stations,mul=3,para=para,\
     byRecord=False,remove_resp=True)
-n.mul = 2
+n.mul = 4
 corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3,minSNR=0.1))
 corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2,minSNR=0.1))
 #corrLG     = corrLP.copy()
@@ -168,6 +168,7 @@ maxCount=4096,noiseMul=0.0)
 #modelG = fcn.model(channelList=[0,2,3])
 modelP = fcn.model(channelList=[0])
 fcn.trainAndTest(modelP,corrLP,corrLTestP,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
+
 #fcn.trainAndTest(modelG,corrLG,corrLTestG,outputDir='predict/G_')
 
 quakes   = seism.QuakeL('phaseL')

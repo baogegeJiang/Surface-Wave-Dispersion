@@ -109,7 +109,7 @@ class fcnConfig:
         '''
         self.inputSize  = [4096,1,4]
         self.outputSize = [4096,1,30]
-        self.featureL   = [min(2**(i+1)+60,100) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]
+        self.featureL   = [min(2**(i+1)+60,100) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
         self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
         self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
         #self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
