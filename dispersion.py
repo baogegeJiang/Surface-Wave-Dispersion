@@ -190,7 +190,11 @@ class config:
             else:
                 quakeName=''
             if len(quakesRef)>0:
-                quake= quakesRef.find(quake)
+                index = quakesRef.find(quake)
+                if index>=0:
+                    quake = quakesRef[index]
+                else:
+                    continue
             sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
                 remove_resp=remove_resp,para=self.para0)
