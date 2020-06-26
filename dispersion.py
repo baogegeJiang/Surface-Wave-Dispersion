@@ -24,7 +24,7 @@ class config:
         xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5,isCut=False,minDist=0,maxDist=1e8,\
-                minDDist=0,maxDDist=1e8,para={},isFromO=False,removeP=False):
+                minDDist=0,maxDDist=1e8,para={},isFromO=False,removeP=False,doFlat=True):
         para0= {\
             'delta0'    :0.02,\
             'freq'      :[-1, -1],\
@@ -68,6 +68,7 @@ class config:
         self.para0      = para0
         self.isFromO    = isFromO
         self.removeP    = removeP
+        self.doFlat = doFlat
     def getDispL(self):
         return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
             halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
@@ -76,7 +77,7 @@ class config:
             modelFile = self.originName
         return model(modelFile, mode=self.surfaceMode,getMode = self.getMode,\
             layerMode =self.layerMode,layerN=self.layerN,isFlat=self.isFlat,R=self.R,flatM=self.flatM,\
-            pog=self.pog,gpdcExe=self.gpdcExe)
+            pog=self.pog,gpdcExe=self.gpdcExe,doFlat=self.doFlat)
     def genModel(self,modelFile='',N=100,perD= 0.10,depthMul=2):
         if len(modelFile)==0:
             modelFile = self.originName
@@ -93,14 +94,17 @@ class config:
                 depthLast  = depth
                 model[j,0] = depth
                 for k in range(2,model.shape[1]):
-                    if j ==0:
-                        d = 1
+                    if k<4:
+                        if j ==0:
+                            d = 1
+                        else:
+                            d = model0[j,k]- model0[j-1,k]
+                        if j!=0:
+                            model[j,k]=model[j-1,k]+(1+perD*(2*np.random.rand()-1))*d
+                        else:
+                            model[j,k]=model[j,k]+(0+perD*(2*np.random.rand()-1))*d
                     else:
-                        d = model0[j,k]- model0[j-1,k]
-                    if j!=0:
-                        model[j,k]=model[j-1,k]+(1+perD*(2*np.random.rand()-1))*d
-                    else:
-                        model[j,k]=model[j,k]+(0+perD*(2*np.random.rand()-1))*d
+                        model[j,k] = int(model[j,k]*(np.random.rand()+8)/8.5)
                 model[j,1] = model[j,2]*(1.7+2*(np.random.rand()-0.5)*0.18)
             np.savetxt('%s%d'%(modelFile,i),model)
     def genFvFile(self,modelFile='',fvFile=''):
@@ -211,6 +215,7 @@ class config:
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
                 srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO,\
                 removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv,quakeName=quakeName)
+            print('###########',len(corrL))
         return corrL
     def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
         corrL = []
@@ -231,6 +236,7 @@ class config:
                 minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist\
                 ,isFromO=self.isFromO,removeP=self.removeP)
+            print('###########',len(corrL))
         return corrL
     def getSacFile(self,sacFile,randDrop=0.3,para={}):
         sacsL = []
@@ -241,9 +247,15 @@ class config:
             lines = f.readlines()
         srcData = ''
         if np.random.rand()<randDrop:
-            duraCount = int(20+200*np.random.rand())
+            duraCount = int(5+200*(np.random.rand()**2))
             srcData = np.zeros(duraCount)
-            randomSource(4,duraCount,srcData)
+            if np.random.rand()<randDrop:
+                if np.random.rand()<randDrop:
+                    randomSource(3,duraCount,srcData)
+                else:
+                    randomSource(2,duraCount,srcData)
+            else:
+                randomSource(4,duraCount,srcData)
             print('convolve data')
         for line in lines:
             if line[0]=='#':
@@ -482,7 +494,7 @@ class model:
         new is to get fundamental phase velocity for PSV
     '''
     def __init__(self,modelFile, mode='PSV',getMode = 'norm',layerMode ='prem',layerN=10000,isFlat=False,R=6371,flatM=-2,\
-        pog='p',gpdcExe=gpdcExe):
+        pog='p',gpdcExe=gpdcExe,doFlat=True):
         #z0 z1 rho vp vs Qkappa Qmu
         #0  1  2   3  4  5      6
         self.modelFile = modelFile
@@ -514,7 +526,7 @@ class model:
                     Qp= 1200
                     Qs=600
                 z =np.array([data[i-1,0],data[min(i+1-1,layerN-2),0]])
-                if isFlat:
+                if isFlat and doFlat:
                     z,vp,vs,rho = flat(z,vp,vs,rho,m=flatM,R=R)
                 layerL[i] = layer(vp,vs,rho,z,Qp,Qs)
         surfaceL = [None for i in range(layerN-1)]
@@ -740,6 +752,35 @@ class model:
             vp[iNew*2:iNew*2+2] =np.array([self.layerL[i].vp,self.layerL[i].vp])
             vs[iNew*2:iNew*2+2] = np.array([self.layerL[i].vs,self.layerL[i].vs])
         return z,vp,vs
+    def outputZVRho(self):
+        layerN = len(self.layerL)
+        z  = np.zeros(layerN*2-2)
+        vp = np.zeros(layerN*2-2)
+        vs = np.zeros(layerN*2-2)
+        rho = np.zeros(layerN*2-2)
+        for i in range(1,layerN):
+            iNew = i-1
+            z[iNew*2:iNew*2+2] = self.layerL[i].z
+            vp[iNew*2:iNew*2+2] =np.array([self.layerL[i].vp,self.layerL[i].vp])
+            vs[iNew*2:iNew*2+2] = np.array([self.layerL[i].vs,self.layerL[i].vs])
+            rho[iNew*2:iNew*2+2] = np.array([self.layerL[i].rho,self.layerL[i].rho])
+        return z,vp,vs,rho
+    def __call__(self,z):
+        z0,vp0,vs0,rho0=self.outputZVRho()
+        interpP=interpolate.interp1d(z0,vp0,kind='linear',\
+            bounds_error=False,fill_value=vp0[-1])
+        interpS=interpolate.interp1d(z0,vs0,kind='linear',\
+            bounds_error=False,fill_value=vs0[-1])
+        interpRho=interpolate.interp1d(z0,rho0,kind='linear',\
+            bounds_error=False,fill_value=rho0[-1])
+        return interpP(z),interpS(z),interpRho(z)
+    def to2D(self,x,z):
+        nz = z.size
+        nx = x.size
+        zM = np.zeros([nz,nx])+z.reshape([-1,1])
+        return self(zM)
+
+
 
 
 
@@ -822,7 +863,7 @@ class fv:
     it have two attributes f and v, each element in v accosiate with an 
      element in v 
     '''
-    def __init__(self,input,mode='num'):
+    def __init__(self,input,mode='num',threshold=0.06):
         if mode == 'num':
             self.f = input[0]
             self.v = input[1]
@@ -833,14 +874,24 @@ class fv:
         if mode == 'NEFile':
             T = []
             v = []
+            std =[]
             with open(input) as f:
                 lines = f.readlines()
             for line in lines[3:]:
                 tmp = line.split()
                 T.append(float(tmp[0]))
                 v.append(float(tmp[1]))
-            self.f = 1/np.array(T)
-            self.v = np.array(v)
+                std.append(float(tmp[2]))
+            f = 1/np.array(T)
+            v = np.array(v)
+            std = np.array(std)
+            f = f[std<threshold]
+            v = v[std<threshold]
+            if len(f) <=1:
+                f = np.array([-1,0])
+                v = np.array([-1,0])
+            self.f = f 
+            self.v = v
         self.interp = self.genInterp()
     def genInterp(self):
         return interpolate.interp1d(self.f,self.v,kind='linear',\
@@ -1071,7 +1122,7 @@ class corr:
                                   ])
             return corrType
     def outputTimeDis(self,FV,T=np.array([5,10,20,30,50,80,100,150,200,250,300]),sigma=2,\
-        byT=False):
+        byT=False,byA=False,rThreshold=0.1):
         self.T=T
         f  = 1/T
         t0 = self.timeL[0]
@@ -1086,12 +1137,23 @@ class corr:
             tMax =max(300,t.max())
             tmpSigma = sigma/300*tMax
         timeDis = np.exp(-((timeL-t)/tmpSigma)**2)
+        if byA:
+            spec = np.abs(np.fft.fft(self.xx))
+            spec/=spec.max()
+            minf = 1/(len(self.timeL)*(self.timeL[1]-self.timeL[0]))
+            indexF = (f.reshape([-1])/minf).astype(np.int)
+            aF = spec[indexF]
+            #print(aF,aF<rThreshold)
+            timeDis[:,aF<rThreshold]=timeDis[:,aF<rThreshold]*0
         return timeDis,t0
     def compareInOut(self,yin,yout,t0):
+        aIn = yin.argmax(axis=0)
         posIn   = yin.argmax(axis=0)/self.fs
         posOut  = yout.argmax(axis=0)/self.fs
         dPos    = posOut - posIn
         dPosR   = dPos/(posIn+t0+1e-8)
+        dPos[aIn<0.5] = dPos[aIn<0.5]*0-100000
+        dPosR[aIn<0.5] = dPosR[aIn<0.5]*0-10000
         return dPos, dPosR, dPos*0 + self.dDis
     def getV(self,yout):
         posOut = yout.argmax(axis=0).reshape([-1])
@@ -1108,6 +1170,16 @@ class corrL(list):
         super().__init__()
         if len(argv)>0:
             for tmp in argv[0]:
+                if 'fvD' in kwargs:
+                    fvD = kwargs['fvD']
+                    modelName =tmp.modelFile
+                    if len(modelName.split('_'))>=2:
+                        name0 = modelName.split('_')[-2]
+                        name1 = modelName.split('_')[-1]
+                        modelName0 ='%s_%s'%(name0,name1)
+                        modelName1 ='%s_%s'%(name1,name0)
+                        if modelName0 not in fvD and modelName1 not in fvD:
+                            continue
                 self.append(tmp)
         self.iL=np.arange(0)
         self.timeDisArgv = ()
@@ -1140,7 +1212,7 @@ class corrL(list):
         bins   = np.arange(-50,50,2)/4
         res    = np.zeros([len(T),len(bins)-1])
         for i in range(len(T)):
-            res[i,:],tmp=np.histogram(dPosL[:,i],bins,density=True)
+            res[i,:],tmp=np.histogram(dPosL[dPosL[:,i]>-1000,i],bins,density=True)
         plt.pcolor(bins[:-1],1/T,res,cmap='bwr')
         #plt.scatter(dPosL,fL,s=0.5,c = dDisL/2000,alpha=0.3)
         plt.xlabel('erro/s')
@@ -1155,7 +1227,7 @@ class corrL(list):
         bins   = np.arange(-50,50,1)/400
         res    = np.zeros([len(T),len(bins)-1])
         for i in range(len(T)):
-            res[i,:],tmp=np.histogram(dPosRL[:,i],bins,density=True)
+            res[i,:],tmp=np.histogram(dPosRL[dPosRL[:,i]>-1000,i],bins,density=True)
         plt.pcolor(bins[:-1],1/T,res,cmap='bwr')
         #plt.scatter(dPosL,fL,s=0.5,c = dDisL/2000,alpha=0.3)
         plt.xlabel('erro Ratio /(s/s)')
@@ -1173,7 +1245,8 @@ class corrL(list):
     def __call__(self,iL):
         self.getTimeDis(iL,*self.timeDisArgv,**self.timeDisKwarg)
         return self.x, self.y, self.t0L
-    def getTimeDis(self,iL,fvD={},T=[],sigma=2,maxCount=512,noiseMul=0,byT=False):
+    def getTimeDis(self,iL,fvD={},T=[],sigma=2,maxCount=512,noiseMul=0,byT=False,\
+        byA=False,rThreshold=0.1,byAverage=False):
         #print('sigma',sigma)
         if len(iL)==0:
             iL=np.arange(len(self))
@@ -1193,9 +1266,24 @@ class corrL(list):
         randIndexL = np.zeros(len(iL))
         for ii in range(len(iL)):
             i = iL[ii]
-            maxCount = min(maxCount0,self[i].xx.shape[0])
-            tmpy,t0=self[i].outputTimeDis(fvD[self[i].modelFile],\
-                T=T,sigma=sigma,byT=byT)
+            maxCount = min(maxCount0,self[i].xx.shape[0],self[i].x0.shape[0],\
+                self[i].x1.shape[0])
+            modelName =self[i].modelFile
+            if byAverage:
+                if len(modelName.split('_'))>=2:
+                    name0 = modelName.split('_')[-2]
+                    name1 = modelName.split('_')[-1]
+                    modelName0 ='%s_%s'%(name0,name1)
+                    modelName1 ='%s_%s'%(name1,name0)
+                    #print(modelName0)
+                    if modelName0 in fvD:
+                        #print(modelName0)
+                        modelName = modelName0
+                    if modelName1 in fvD:
+                        #print(modelName1)
+                        modelName = modelName1
+            tmpy,t0=self[i].outputTimeDis(fvD[modelName],\
+                T=T,sigma=sigma,byT=byT,byA=byA,rThreshold=rThreshold)
             iP,iN = self.ipin(t0,self[i].fs)
             y[ii,iP:maxCount+iN,0,:] =tmpy[-iN:maxCount-iP]
             x[ii,iP:maxCount+iN,0,0] = np.real(self[i].xx.\
@@ -1221,13 +1309,15 @@ class corrL(list):
         self.dDisL      = dDisL
         self.deltaL     = deltaL
         #print(x[0,1500,0])
-    def getV(self,yout,isSimple=True,D=0.1):
+    def getV(self,yout,isSimple=True,D=0.1,isLimit=False):
         if isSimple:
             pos = yout.argmax(axis=1)[:,0]
             prob= yout.max(axis=1)[:,0]
             time= self.t0L.reshape([-1,1])+pos*self.deltaL.reshape([-1,1])
             v   = self.dDisL.reshape([-1,1])/(time)
         else:
+            if isLimit:
+                yout *= (self.y.max(axis=1,keepdims=True)>0.5)
             N    = yout.shape[0]
             M    = yout.shape[-1]
             v    = np.zeros([N,M])
@@ -1267,7 +1357,7 @@ class corrL(list):
             for tmp in prob[i]:
                 f.write(' %.3f '% tmp)
             f.write('\n')
-    def getAndSave(self,model,fileName,isPlot=False,isSimple=True,D=0.2):
+    def getAndSave(self,model,fileName,isPlot=False,isSimple=True,D=0.2,isLimit=False):
         N = len(self)
         if 'T' in self.timeDisKwarg:
             T = self.timeDisKwarg['T']
@@ -1281,7 +1371,7 @@ class corrL(list):
         for i0 in range(0,N,1000):
             i1 = min(i0+1000,N-1)
             x, y, t= self(np.arange(i0, i1))
-            v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,D=D)
+            v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,D=D,isLimit=isLimit)
             v0[i0:i1],prob0[i0:i1]=self.getV(y)
         with open(fileName,'w+') as f:
             self.saveV(v,prob,f,T, np.arange(N))
@@ -1407,8 +1497,9 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                 continue
             #print(sac0,sac1,sac0.stats['sac']['az'],sac1.stats['sac']['az'])
             az   = np.array([sac0.stats['sac']['az'],sac1.stats['sac']['az']])
-            if np.abs((az[0]-az[1])%360)>5:
-                continue
+            if not (isLoadFv and len(quakeName)>0):
+                if np.abs((az[0]-az[1])%360)>5:
+                    continue
 
             dis  = np.array([sac0.stats['sac']['dist'],sac1.stats['sac']['dist']])
             
@@ -1442,26 +1533,34 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
 class fkcorr:
     def __init__(self,config=config()):
         self.config = config
-    def __call__(self,index,iL,f):
+    def __call__(self,index,iL,f,mul=290,depth=-1,srcSacIndex=0):
             #print('add',len(corrLL),len(corrLL[index]))
         #print(len(corrLL[index]))
         #return []
         for i in iL:
-            modelFile = '%s%d'%(self.config.originName,i)
+            if i<0:
+                modelFile = '%s'%(self.config.originName)
+            else:
+                modelFile = '%s%d'%(self.config.originName,i)
             #print(modelFile)
             m = self.config.getModel(modelFile)
             m.covert2Fk(0)
             m.covert2Fk(1)
             dura = np.random.rand()*10+20
-            depth= int(np.random.rand()*20+10)+(i%39)
+            if depth<0:
+                depth= int(np.random.rand()*20+10)+(i%39)
             print('###################################',depth)
             M=np.array([3e25,0,0,0,0,0,0])
             M[1:] = np.random.rand(6)
-            srcSacIndex = int(np.random.rand()*self.config.srcSacNum*0.999)
+            if srcSacIndex>=0:
+                srcSacIndex = int(np.random.rand()*self.config.srcSacNum*0.999)
             rise = 0.1+0.3*np.random.rand()
-            sacsL, sacNamesL= f.test(distance=self.config.distance+np.round((np.random.rand(self.config.distance.size)-0.5)*290),\
-                modelFile=modelFile,fok=self.config.fok,dt=self.config.delta,depth=depth,expnt=self.config.expnt,dura=dura,\
-                dk=self.config.dk,azimuth=[0],M=M,rise=rise,srcSac=getSourceSacName(srcSacIndex,self.config.delta,\
+            sacsL, sacNamesL= f.test(distance=self.config.distance+\
+                np.round((np.random.rand(self.config.distance.size)-0.5)*mul),\
+                modelFile=modelFile,fok=self.config.fok,dt=self.config.delta,\
+                depth=depth,expnt=self.config.expnt,dura=dura,\
+                dk=self.config.dk,azimuth=[0],M=M,rise=rise,\
+                srcSac=getSourceSacName(srcSacIndex,self.config.delta,\
                     srcSacDir = self.config.srcSacDir),isFlat=self.config.isFlat)
             #print(len(corrLL[index]),len(dispL) )
             with open(modelFile+'sacFile','w') as ff:

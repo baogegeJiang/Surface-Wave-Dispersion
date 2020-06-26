@@ -17,6 +17,11 @@ NoneType = type(None)
 
 
 class Dist:
+    '''
+    class which can be easily extended for different object with 
+    accesses to inputing and outputing
+    keys for the 
+    '''
     def __init__(self,*argv,**kwargs):
         self.defaultSet()
         self.splitKey = ' '
@@ -380,7 +385,7 @@ class Quake(Dist):
                         decMul = para['delta0']/data.stats.delta
                         if np.abs(int(decMul)-decMul)<0.001:
                             decMul=decMul
-                            print('decMul: ',decMul)
+                            #print('decMul: ',decMul)
                         else:
                             decMul=-1
                     data=adjust(data,decMul=decMul,stloc=station.loc(),eloc = self.loc(),\
@@ -447,7 +452,7 @@ class Quake(Dist):
                         break
                 if isF:
                     respDone = True
-                    print(station,'done')
+                    #print(station,'done')
                 else:
                     resSacNames = station.baseSacName(tmpDir,strL=strL)
             if remove_resp and isSkip==True and isSave==True:
@@ -456,16 +461,16 @@ class Quake(Dist):
                 for resSacName in resSacNamesTmp:
                     if not os.path.exists(resSacName):
                         isF = False
-                        print('need do')
+                        #print('need do')
                         break
                 if isF:
-                    print(station,'done')
+                    #print(station,'done')
                     continue   
             isF = True
             for resSacName in resSacNames:
                 if not os.path.exists(resSacName):
                     isF = False
-                    print('no origin sac')
+                    #print('no origin sac')
                     break
             if isF == True:
                 if isRead:
@@ -555,7 +560,7 @@ class QuakeL(list):
         super().__init__()
         self.inQuake = {}
         self.inRecord= {}
-        self.keys = ['#','*','q','d',' ',' ']
+        self.keys = ['#','*','q-','d-',' ',' ']
         if 'quakeKeysIn' in kwargs:
             self.inQuake['keysIn'] = kwargs['quakeKeysIn']
         if 'recordKeysIn' in kwargs:
@@ -589,9 +594,9 @@ class QuakeL(list):
     def find(self,quake0):
         for i in range(len(self)):
             dTime = np.abs(self[i]['time']-quake0['time'])
-            dLa = np.abs(self[i]['la']-quake0['lo'])
-            dLa = np.abs(self[i]['lo']-quake0['la'])
-            if dTime<10 and dLa<0.2 and dLo<0.2:
+            dLa = np.abs(self[i]['la']-quake0['la'])
+            dLo = np.abs(self[i]['lo']-quake0['lo'])
+            if dTime<10 and dLa<0.5 and dLo<0.5:
                 return i
         return -1
     def read(self,file,**kwargs):

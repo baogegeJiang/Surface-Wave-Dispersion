@@ -19,52 +19,57 @@ srcSacDir='/home/jiangyr/Surface-Wave-Dispersion/srcSac/'
 srcSacDirTest='/home/jiangyr/Surface-Wave-Dispersion/srcSacTest/'
 T=np.array([0.5,1,2,5,8,10,15,20,25,30,40,50,60,70,80,100,125,150,175,200,225,250,275,300])
 
-para={'freq'      :[1/180,1/10]}
+para={'freq'      :[1/150,1/5]}
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
         noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
-        T=T,threshold=0.02,expnt=12,dk=0.1,\
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
         fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,\
+        minDist=600,maxDist=10000,minDDist=200,\
         maxDDist=3000,para=para,isFromO=True,removeP=True)
 configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
         noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
-        T=T,threshold=0.02,expnt=12,dk=0.1,\
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
         fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000,para=para,\
+        minDist=600,maxDist=10000,minDDist=200,maxDDist=3000,para=para,\
+        isFromO=True,removeP=True)
+
+configSmooth=d.config(originName='models/output_smooth',srcSacDir=srcSacDir,\
+        distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=243,\
+        layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
+        noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
+        isFlat=True,doFlat=False,R=6371,flatM=-2,pog='p',calMode='gpdc',\
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
+        fok='/k',order=0,minSNR=10,isCut=False,\
+        minDist=600,maxDist=10000,minDDist=200,maxDDist=3000,para=para,\
         isFromO=True,removeP=True)
 
 stations = seism.StationList('stations/NEsta_all.locSensorDas')
 stations.getSensorDas()
 stations.getInventory()
 
-fvNED = config.loadNEFV(stations)
+fvNEDAvarage = config.loadNEFV(stations)
+fvNED,quakes0 = config.loadQuakeNEFV(stations)
+quakes0=seism.QuakeL(quakes0)
+quakes0.write('phaseLPick')
+fvPD = {'models/prem%d'%i: d.fv('models/prem%d_fv_flat_new_p_0'%i,'file')\
+for i in range(1000)}
+fvPDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_new_p_0'%i,'file')\
+for i in range(1000)}
+fvPD['models/prem']= d.fv('models/prem_fv_flat_new_p_0','file')
+fvPDTest['models/ak135']= d.fv('models/ak135_fv_flat_new_p_0','file')
 #config.plotFVL(fvNED,pog='p')
 fvALLD = {}
 fvALLD.update(fvNED)
 fvALLD.update(fvPD)
 fvALLD.update(fvPDTest)
-f = fk.FK(orignExe=orignExe)
+fvALLD.update(fvNEDAvarage)
 
-pN = 5
-pL=[]
-for i in range(pN):
-    pL.append(  multiprocessing.Process(target=config.calFv, args=(range(i,1000,pN),'p')))
-    pL.append(  multiprocessing.Process(target=config.calFv, args=(range(i,1000,pN),'g')))
-    pL.append(  multiprocessing.Process(target=configTest.calFv, args=(range(i,1000,pN),'p')))
-    pL.append(  multiprocessing.Process(target=configTest.calFv, args=(range(i,1000,pN),'g')))
-
-
-for p in pL:
-    p.start()
-
-for p in pL:
-    p.join()
 
 
 
@@ -76,48 +81,62 @@ tTrain = (10**np.arange(0,1.000001,1/29))*10
 
 i = 0
 
-corrLP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,\
-byT=False,noiseMul=0.0)
-corrLTestP.setTimeDis(fvPDTest,tTrain,sigma=4,\
-maxCount=4096,byT=False,noiseMul=0.0)
+stationsN = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck') + seism.StationList('stations/NEsta_all.locSensorDas')
+stationsN.getInventory()
+noises=seism.QuakeL('noiseL') + seism.QuakeL('noiseLNE')
+n = config.getNoise(noises,stationsN,mul=3,para=para,\
+    byRecord=False,remove_resp=True)
 
-modelP = fcn.model(channelList=[0])
-fcn.trainAndTest(modelP,corrLP,corrLTestP,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
+n.mul = 2
+corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3,minSNR=0.1))
+corrLTestP = d.corrL(configTest.modelCorr(100,noises=n,randDrop=0.2,minSNR=0.1))
+corrLP=d.corrL(corrLP)
+corrLP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.02,byAverage=True)
 
 stationsTrain = seism.StationList('stations/NEsta_all.locSensorDas')
 stationsTrain.getSensorDas()
 stationsTrain.getInventory()
 
-quakesTrain   = seism.QuakeL('phaseLNE')
+quakesTrain   = seism.QuakeL('phaseLPick')
 corrLQuakeP = d.corrL(config.quakeCorr(quakesTrain[:],stationsTrain,\
-    False,remove_resp=True,minSNR=40,isLoadFv=True,fvD=fvNED))
+    False,remove_resp=True,minSNR=2,isLoadFv=True,fvD=fvNED,\
+    isByQuake=True))
+corrLQuakeP0 =corrLQuakeP
+corrLQuakeP = d.corrL(corrLQuakeP0,fvD= fvALLD)
+corrLTrain0     =  d.corrL(corrLQuakeP[4000:]+corrLP[:10000])
+corrLTrain0.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.1,byAverage=True)
 
-corrLP.setTimeDis(fvPD,tTrain,sigma=4,maxCount=4096,\
-byT=False,noiseMul=0.0)
-corrLTestP.setTimeDis(fvPDTest,tTrain,sigma=4,\
-maxCount=4096,byT=False,noiseMul=0.0)
+corrLTrain1     =  d.corrL(corrLP[:])
+corrLTrain1.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.1,byAverage=True)
 
-corrLTrain     =  d.corrL(corrLQuakeP+corrLP[:30000])
-corrLTrain.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
-byT=False,noiseMul=0.0)
-
-stationsTest = seism.StationList('stations/staLstNMV2SelectNew')
-stationsTest.getSensorDas()
-stationsTest.getInventory()
-fvALLD = fvNED+{}
-quakesTest   = seism.QuakeL('phaseL')
-corrLQuakePTest = d.corrL(config.quakeCorr(quakesTest[:100],stationsTrain,\
-    False,remove_resp=True,minSNR=40,isLoadFv=True,fvD=fvNED))
-corrLQuakePTest.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
-byT=False,noiseMul=0.0)
-corrLTest     =  d.corrL(corrLQuakeP+[])
+corrLTest     =  d.corrL(corrLQuakeP[:4000])
 corrLTest.setTimeDis(fvALLD,tTrain,sigma=4,maxCount=4096,\
-byT=False,noiseMul=0.0)
-modelPReal = fcn.model(channelList=[0])
-modelPSyn = fcn.model(channelList=[0])
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.1,byAverage=True)
+corrLTest([1])
+
+modelPReal = fcn.model(channelList=[0,2,3])
+modelPSyn = fcn.model(channelList=[0,2,3])
 #fcn.trainAndTest(modelP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,3],tTrain=tTrain)
 #fcn.trainAndTest2(modelP,corrLP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
-fcn.trainAndTestGetSet(modelPReal,modelPSyn,corrLP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
+fcn.trainAndTestCross(modelPReal,modelPSyn,corrLTrain0,corrLTrain1,corrLTest,\
+    outputDir='predict/P_',sigmaL=[4,3],tTrain=tTrain,modeL=['None','None'])
+
+modelPReal = fcn.model(channelList=[0,2,3])
+modelPSyn = fcn.model(channelList=[0,2,3])
+#fcn.trainAndTest(modelP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,3],tTrain=tTrain)
+#fcn.trainAndTest2(modelP,corrLP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
+fcn.trainAndTestCross(modelPReal,modelPSyn,corrLTrain1,corrLTrain1,corrLTest,\
+    outputDir='predict/Syn_P_',sigmaL=[4,3],tTrain=tTrain,modeL=['None','None'])
+
+modelPReal = fcn.model(channelList=[0,2,3])
+modelPSyn = fcn.model(channelList=[0,2,3])
+#fcn.trainAndTest(modelP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,3],tTrain=tTrain)
+#fcn.trainAndTest2(modelP,corrLP,corrLTrain,corrLTest,outputDir='predict/P_',sigmaL=[4,2],tTrain=tTrain)
+fcn.trainAndTestCross(modelPReal,modelPSyn,corrLTrain0,corrLTrain0,corrLTest,\
+    outputDir='predict/Real_P_',sigmaL=[4,3],tTrain=tTrain,modeL=['None','None'])
 xQuake, yQuake, tQuake =corrLQuakePTest(np.arange(0,400,10))
 modelP.show(xQuake, yQuake,time0L=tQuake,delta=1.0,T=tTrain,\
         outputDir='predict/R_P')
@@ -136,3 +155,28 @@ modelG.show(corrLQuakeG.x[iL],corrLQuakeG.y[iL],\
         outputDir='predict/R_G')
 
 
+
+
+
+import nb
+model = config.getModel()
+NB = nb.NB()
+NB.test(mp)
+NB.test(nb.Model4())
+NB.test(nb.Model3())
+
+
+
+config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
+        distance=np.arange(300,10000,150),srcSacNum=100,delta=1,layerN=20,\
+        layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
+        noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
+        isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
+        fok='/k',order=0,minSNR=10,isCut=False,\
+        minDist=600,maxDist=10000,minDDist=200,\
+        maxDDist=3000,para=para,isFromO=True,removeP=True)
+
+FKCORR = d.fkcorr(config)
+FK = fk.fkL(1,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/')[0]
+FKCORR(0,[-1],FK,mul=0,depth=150)

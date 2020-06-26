@@ -136,6 +136,10 @@ class FK:
             for azi in self.azimuth:
                 sacNames = self.getFileName(dis,self.depth,azi,self.M)
                 sacs = [obspy.read(sacName)[0] for sacName in sacNames]
+                for sacName in sacNames:
+                    trace = obspy.read(sacName)[0]
+                    trace.stats['sac']['kstnm']=str(dis)[:3]+str(azi)[:3]
+                    trace.write(sacName,format="SAC")
                 sacNamesL.append(sacNames)
                 sacsL.append(sacs)
         return sacsL,sacNamesL
@@ -207,17 +211,21 @@ class fkL(list) :
             p.join()
             print('######',i)
             i+=1
-    def clear(self):2
+    def clear(self):
         for f in self:
             f.clear()
 
-def genSourceSacs(f,N,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/srcSac/',time=50):
+def genSourceSacs(f,N,delta,srcSacDir = \
+    '/home/jiangyr/Surface-Wave-Dispersion/srcSac/',time=50):
     fileNameL = [getSourceSacName(index,delta,srcSacDir) for index in range(N)]
     #print(fileNameL)
     if not os.path.exists(srcSacDir):
         os.makedirs(srcSacDir)
     f.genSourceSacs(fileNameL,delta,time=time)
-def getSourceSacName(index,delta,srcSacDir = '/home/jiangyr/Surface-Wave-Dispersion/srcSac/'):
+def getSourceSacName(index,delta,srcSacDir = \
+    '/home/jiangyr/Surface-Wave-Dispersion/srcSac/'):
+    if index<0:
+        return ''
     return '%s/%d_%d.sac'%(srcSacDir,index,delta*1e3)
 
         

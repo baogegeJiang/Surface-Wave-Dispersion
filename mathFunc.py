@@ -192,7 +192,7 @@ def randomSource(i,duraCount,data):
         data[:duraCount] += (np.random.rand(duraCount)-0.5)*0.1
         data[:duraCount] *= np.random.rand(duraCount)+4
     if i == 4:
-        T  = np.random.rand()*40+5
+        T  = (np.random.rand()**3)*100+5
         T0 = np.random.rand()*2*np.pi
         data[:duraCount] = np.sin(np.arange(duraCount)/T*2*np.pi+T0)
         data[:duraCount] += (np.random.rand(duraCount)-0.5)*0.1

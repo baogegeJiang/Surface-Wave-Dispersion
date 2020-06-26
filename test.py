@@ -27,16 +27,16 @@ config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
         fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,\
+        minDist=600,maxDist=10000,minDDist=200,\
         maxDDist=3000,para=para,isFromO=True,removeP=True)
-configTest=d.config(originName='models/ak135',srcSacDir=srcSacDir,\
-        distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
+configTest=d.config(originName='models/ak135New',srcSacDir=srcSacDir,\
+        distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=39,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
         noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.1,\
         fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=1000,maxDist=1e8,minDDist=200,maxDDist=3000,para=para,\
+        minDist=600,maxDist=10000,minDDist=200,maxDDist=3000,para=para,\
         isFromO=True,removeP=True)
 
 configNoQ=d.config(originName='models/noQ',srcSacDir=srcSacDir,\
@@ -50,8 +50,8 @@ configNoQ=d.config(originName='models/noQ',srcSacDir=srcSacDir,\
         isFromO=True,removeP=True)
 
 
-#config.genModel(N=1000,perD= 0.30,depthMul=2)
-#configTest.genModel(N=1000,perD= 0.30,depthMul=2)
+config.genModel(N=1000,perD= 0.30,depthMul=2)
+configTest.genModel(N=1000,perD= 0.30,depthMul=2)
 #configNoQ.genModel(N=1000,perD= 0.30,depthMul=2)
 
 
@@ -94,7 +94,7 @@ fvPDTest = {'models/ak135%d'%i: d.fv('models/ak135%d_fv_flat_new_p_0'%i,'file')f
 fvGD['models/prem']= d.fv('models/prem_fv_flat_new_g_0','file')
 fvPD['models/prem']= d.fv('models/prem_fv_flat_new_p_0','file')
 fvGD['models/ak135']= d.fv('models/ak135_fv_flat_new_g_0','file')
-fvPD['models/ak135']= d.fv('models/ak135_fv_flat_new_p_0','file')
+fvPDTest['models/ak135']= d.fv('models/ak135_fv_flat_new_p_0','file')
 disDir = 'disDir/'
 mL = [config.getModel('models/prem%d'%i)for i in range(1000)]
 mLTest = [configTest.getModel('models/prem%d'%i)for i in range(1000)]
@@ -139,10 +139,10 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     
 
 i = 0
-stations = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck') + seism.StationList('stations/NEsta_all.locSensorDas')
-stations.getInventory()
+stationsN = seism.StationList('stations/staLstNMV2SelectNewSensorDasCheck') + seism.StationList('stations/NEsta_all.locSensorDas')
+stationsN.getInventory()
 noises=seism.QuakeL('noiseL') + seism.QuakeL('noiseLNE')
-n = config.getNoise(noises,stations,mul=3,para=para,\
+n = config.getNoise(noises,stationsN,mul=3,para=para,\
     byRecord=False,remove_resp=True)
 n.mul = 4
 corrLP = d.corrL(config.modelCorr(1000,noises=n,randDrop=0.3,minSNR=0.1))
@@ -218,17 +218,36 @@ req ={\
 quakes.select(req)
 quakes.write('phaseLNE')
 quakes   = seism.QuakeL('phaseLNE')
+
 para={\
 'delta0' :1,
 'freq'   :[0.8/3e2,0.8/2],
 'corners':4,
 'maxA':1e10,
 }
+
 quakes[:1000].cutSac(stations,bTime=-10,eTime =4096,\
     para=para,byRecord=False,isSkip=True)
 for quake in quakes[:]:
     quake.getSacFiles(stations,isRead=True,remove_resp=True,\
         isPlot=False,isSave=True,para={'freq'      :[0.8/3e2,0.8/2]},isSkip=True)
+
+quakes   = seism.QuakeL('phaseLPick')
+stations.getSensorDas()
+stations.getInventory()
+para={\
+'delta0' :1,
+'freq'   :[0.8/3e2,0.8/2],
+'corners':4,
+'maxA':1e10,
+}
+quakes[:].cutSac(stations,bTime=-10,eTime =4096,\
+    para=para,byRecord=False,isSkip=True)
+for quake in quakes[:]:
+    quake.getSacFiles(stations,isRead=True,remove_resp=True,\
+        isPlot=False,isSave=True,para={'freq'      :[0.8/3e2,0.8/2]},isSkip=True)
+
+
 quakes   = seism.QuakeL('phaseLNE')
 noises = quakes.copy()
 for noise in noises:
