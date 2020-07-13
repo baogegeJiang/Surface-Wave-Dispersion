@@ -24,7 +24,8 @@ class config:
         xcorrFuncL = [xcorrSimple,xcorrComplex],isFlat=False,R=6371,flatM=-2,pog='p',calMode='fast',\
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5,isCut=False,minDist=0,maxDist=1e8,\
-                minDDist=0,maxDDist=1e8,para={},isFromO=False,removeP=False,doFlat=True):
+        minDDist=0,maxDDist=1e8,para={},isFromO=False,removeP=False,doFlat=True,\
+        QMul=1):
         para0= {\
             'delta0'    :0.02,\
             'freq'      :[-1, -1],\
@@ -68,7 +69,8 @@ class config:
         self.para0      = para0
         self.isFromO    = isFromO
         self.removeP    = removeP
-        self.doFlat = doFlat
+        self.doFlat    = doFlat
+        self.QMul      = QMul
     def getDispL(self):
         return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
             halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
@@ -77,7 +79,7 @@ class config:
             modelFile = self.originName
         return model(modelFile, mode=self.surfaceMode,getMode = self.getMode,\
             layerMode =self.layerMode,layerN=self.layerN,isFlat=self.isFlat,R=self.R,flatM=self.flatM,\
-            pog=self.pog,gpdcExe=self.gpdcExe,doFlat=self.doFlat)
+            pog=self.pog,gpdcExe=self.gpdcExe,doFlat=self.doFlat,QMul=self.QMul)
     def genModel(self,modelFile='',N=100,perD= 0.10,depthMul=2):
         if len(modelFile)==0:
             modelFile = self.originName
@@ -494,7 +496,7 @@ class model:
         new is to get fundamental phase velocity for PSV
     '''
     def __init__(self,modelFile, mode='PSV',getMode = 'norm',layerMode ='prem',layerN=10000,isFlat=False,R=6371,flatM=-2,\
-        pog='p',gpdcExe=gpdcExe,doFlat=True):
+        pog='p',gpdcExe=gpdcExe,doFlat=True,QMul=1):
         #z0 z1 rho vp vs Qkappa Qmu
         #0  1  2   3  4  5      6
         self.modelFile = modelFile
@@ -525,6 +527,8 @@ class model:
                 else:
                     Qp= 1200
                     Qs=600
+                Qp *= QMul
+                Qs *= QMul
                 z =np.array([data[i-1,0],data[min(i+1-1,layerN-2),0]])
                 if isFlat and doFlat:
                     z,vp,vs,rho = flat(z,vp,vs,rho,m=flatM,R=R)
@@ -1533,7 +1537,8 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
 class fkcorr:
     def __init__(self,config=config()):
         self.config = config
-    def __call__(self,index,iL,f,mul=290,depth=-1,srcSacIndex=0):
+    def __call__(self,index,iL,f,mul=290,depth0=-1,srcSacIndex=0,\
+        dura0=-1,rise0=-1,M0=[],azimuth=[0]):
             #print('add',len(corrLL),len(corrLL[index]))
         #print(len(corrLL[index]))
         #return []
@@ -1546,20 +1551,31 @@ class fkcorr:
             m = self.config.getModel(modelFile)
             m.covert2Fk(0)
             m.covert2Fk(1)
-            dura = np.random.rand()*10+20
-            if depth<0:
+            if dura0<0:
+                dura = np.random.rand()*10+20
+            else:
+                dura = dura0
+            if depth0<0:
                 depth= int(np.random.rand()*20+10)+(i%39)
+            else:
+                depth = depth0
             print('###################################',depth)
-            M=np.array([3e25,0,0,0,0,0,0])
-            M[1:] = np.random.rand(6)
+            if len(M0)==0:
+                M=np.array([3e25,0,0,0,0,0,0])
+                M[1:] = np.random.rand(6)
+            else:
+                M = M0
             if srcSacIndex>=0:
                 srcSacIndex = int(np.random.rand()*self.config.srcSacNum*0.999)
-            rise = 0.1+0.3*np.random.rand()
+            if rise0 <0:
+                rise = 0.1+0.3*np.random.rand()
+            else:
+                rise = rise0
             sacsL, sacNamesL= f.test(distance=self.config.distance+\
                 np.round((np.random.rand(self.config.distance.size)-0.5)*mul),\
                 modelFile=modelFile,fok=self.config.fok,dt=self.config.delta,\
                 depth=depth,expnt=self.config.expnt,dura=dura,\
-                dk=self.config.dk,azimuth=[0],M=M,rise=rise,\
+                dk=self.config.dk,azimuth=azimuth,M=M,rise=rise,\
                 srcSac=getSourceSacName(srcSacIndex,self.config.delta,\
                     srcSacDir = self.config.srcSacDir),isFlat=self.config.isFlat)
             #print(len(corrLL[index]),len(dispL) )

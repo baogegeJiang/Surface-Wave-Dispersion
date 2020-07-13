@@ -7,6 +7,7 @@ from multiprocessing import Process, Manager
 import mathFunc
 defaultPath='fkRun/'
 orignExe = '/Users/jiangyiran/prog/fk/fk/'
+###different source different meaning
 class FK:
     '''
     class for using fk program
@@ -222,6 +223,7 @@ def genSourceSacs(f,N,delta,srcSacDir = \
     if not os.path.exists(srcSacDir):
         os.makedirs(srcSacDir)
     f.genSourceSacs(fileNameL,delta,time=time)
+
 def getSourceSacName(index,delta,srcSacDir = \
     '/home/jiangyr/Surface-Wave-Dispersion/srcSac/'):
     if index<0:

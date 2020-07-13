@@ -159,7 +159,7 @@ modelG.show(corrLQuakeG.x[iL],corrLQuakeG.y[iL],\
 
 
 import nb
-model = config.getModel()
+mp = config.getModel()
 NB = nb.NB()
 NB.test(mp)
 NB.test(nb.Model4())
@@ -175,8 +175,38 @@ config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         T=T,threshold=0.02,expnt=12,dk=0.05,\
         fok='/k',order=0,minSNR=10,isCut=False,\
         minDist=600,maxDist=10000,minDDist=200,\
-        maxDDist=3000,para=para,isFromO=True,removeP=True)
+        maxDDist=3000,para=para,isFromO=True,removeP=True,QMul=1000)
 
 FKCORR = d.fkcorr(config)
 FK = fk.fkL(1,exePath='FKRUN/',orignExe=orignExe,resDir='FKRES/')[0]
-FKCORR(0,[-1],FK,mul=0,depth=150)
+FKCORR(0,[-1],FK,mul=0,depth0=150,srcSacIndex=-1)
+
+config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
+        distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
+        layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
+        noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
+        isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
+        fok='/k',order=0,minSNR=10,isCut=False,\
+        minDist=600,maxDist=10000,minDDist=200,\
+        maxDDist=3000,para=para,isFromO=True,removeP=True) 
+
+mL = [config.getModel('models/prem%d'%i)for i in range(100)]
+NB = nb.NB(saveDt = 1)
+for m in mL[:2]:
+    modelName = 'nb_'+os.path.basename(m.modelFile)
+    paraNB= {'model':modelName,\
+        'strike':360*np.random.rand(),\
+        'dip':90*np.random.rand(),\
+        'rake':360*np.random.rand()-180,\
+        'alpha':-5-int(10*np.random.rand()),\
+        'zs':int((20+300*np.random.rand()**2)/NB.para0['h'])}
+    NB.isH = True
+    N = int(100/NB.para0['dt'])
+    duraCount = int((20+60*np.random.rand())/NB.para0['dt'])
+    NB.H = np.zeros(N)
+    mathFunc.randomSource(int(1000*np.random.rand())%5,\
+        duraCount,NB.H)
+    NB.test(m,paraNB,isFilter=True)
+
+

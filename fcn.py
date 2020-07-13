@@ -69,6 +69,7 @@ def inAndOutFunc(config):
         last     = concatenate([dConvL[i],convL[i]],axis=3)
     outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),\
         padding='same',activation='sigmoid')(last)
+    return inputs,outputs
 
 def inAndOutFuncNew(config):
     inputs  = Input(config.inputSize)

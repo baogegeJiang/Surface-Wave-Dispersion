@@ -10,6 +10,8 @@ if sys.byteorder =='little':
     h = '<'
 else:
     h = '>'
+
+#this is a python way to prepare for and run nb program
 class Model:
     #right
     def __init__(self):
@@ -31,7 +33,7 @@ class Model2:
         nx = x.size
         one = np.ones([nz,nx])
         vp = one*6.0
-        vp[int(nz/2):]/=0.9
+        vp[int(nz/2):]/=0.8
         vs = vp/1.7
         den= one*3.0
         return vp,vs,den
@@ -44,7 +46,7 @@ class Model3:
         nx = x.size
         one = np.ones([nx,nz])
         vp = one*6.0
-        vp[:,int(nz/2):]/=2
+        vp[:,int(nz/2):]/=0.8
         vs = vp/1.7
         den= one*3.0
         return vp,vs,den
@@ -69,7 +71,7 @@ def read(file):
     nT = int(toNum('i',8,s)[7])
     perSize = (nT+21)*struct.calcsize(h+'f')
     nRec = int(len(s)/perSize)
-    data = toNum('f',nRec*(nT+21),s)
+    data = toNum('f',nRec*(nT+21),s).astype(np.float64)
     data = data.reshape([nRec,nT+21])
     b  = data[:,21:]
     xs = data[:,0]
@@ -95,6 +97,7 @@ class Records:
         self.xs   = xs[0::2]
         self.zs   = zs[0::2]
         self.xr   = xr[0::2]
+        self.zr   = zr[0::2]
         self.dt   = dt[0::2]
         self.gain  = gain
         self.nt = self.data.shape[1]
@@ -103,13 +106,14 @@ class Records:
         bt = (self.data[1::2]+self.data[0::2])/2
         btNew = bt*0
         for i in  range(bt.shape[0]):
-            btNew[i] = signal.convolve(1/(self.t**0.5),bt[i])[:self.nt]
-        btNew[:,1:]=btNew[:,1:]-btNew[:,0:-1]
+            btNew[i]   = signal.convolve(1/(self.t**0.5), bt[i])[:self.nt]
+        btNew[:,1:]    = btNew[:,1:]-btNew[:,0:-1]
 
-        btp = (self.data[1::2]-self.data[0::2])/2*self.gain[0]
-        btpNew = btp*0
+        btp            = (self.data[1::2]-self.data[0::2])/2*self.gain[0]
+        btpNew         = btp*0
         for i in  range(btp.shape[0]):
-            btpNew[i] = signal.convolve(1/(self.t**0.5),btp[i])[:self.nt]
+            btpNew[i]  = signal.convolve(1/(self.t**0.5), btp[i])[:self.nt]
+
         bts=np.sign(btNew)*np.sqrt(abs(btNew*btpNew))
         for i in range(bts.shape[0]):
             sqrtR = np.abs(self.xr[i]-self.xs[i])**0.5
@@ -119,20 +123,21 @@ class Records:
         return btNew,btpNew,bts
 
 class NB:
-    def __init__(self,para={},mainDir ='gpu_2d/'):
+    def __init__(self,para={},mainDir ='gpu_2d/',isShift=True,isH = False,H=[],\
+        saveDt=-1):
         self.para0={\
-        'nx':16384,
-        'nz':2048,
+        'nx':4096,
+        'nz':1024,
         'model':'example',
-        'nt':160000,
+        'nt':102400,
         'gpuid':1,
-        'xs':500,
-        'zs':50,
-        'h': 1,
-        'dt':0.02,
-        'srctype':'1',
+        'xs':300,
+        'zs':300,
+        'h': 2,
+        'dt':0.04,
+        'srctype':'p',
         'srctime':'g',
-        'alpha':-20,
+        'alpha':-10,
         'trap1':0,
         'trap2':0,
         'trap3':0,
@@ -140,27 +145,30 @@ class NB:
         'dip':20.1,
         'rake':1.1,
         'azimuth':180.1,
-        'npml':64,
-        'npml':64,
+        'npml':32,
         'pml_r':1e-11,
         'pml_dt':0.005,
         'pml_v':30.0,
         'pml_fc':2,
         'itrecord':1  ,    
         'output':'output',
-        'nrec':60,
-        'ixrec0':600,
+        'nrec':90,
+        'ixrec0':360,
         'izrec0_u':1,    
         'izrec0_w':1,
         'izrec0_v':1,
-        'idxrec':150 ,
+        'idxrec':40 ,
         'idzrec':0  ,
-        'ntsnap':1000000,
+        'ntsnap':100000000,
         'usetable':0,
-        'itprint' :1000
+        'itprint' :10000,
         }
+        self.isShift=isShift
         self.update(para)
         self.mainDir = mainDir
+        self.isH  = isH
+        self.H = H
+        self.saveDt = saveDt
         if not  os.path.exists(self.mainDir):
             os.makedirs(self.mainDir)
         if not os.path.exists(self.runDir()):
@@ -180,36 +188,49 @@ class NB:
         with open(parName,'w') as f:
             for key in self.para0:
                 f.write(key+'='+str(self.para0[key])+'\n')
-    def writeModel(self,vp,vs,den):
+    def writeModel(self,vp,vs,den,x,z):
         with open(self.runDir()+self.para0['model']+'.vp','wb') as f:
             f.write(toB(vp))
         with open(self.runDir()+self.para0['model']+'.vs','wb') as f:
             f.write(toB(vs))
         with open(self.runDir()+self.para0['model']+'.den','wb') as f:
             f.write(toB(den))
+        #model = np.concatenate([vp,vs,den],axis=0)
+        #np.save('models/'+self.para0['model']+'2D',x)
+        #np.save('models/'+self.para0['model']+'2D_x',x)
+        #np.save('models/'+self.para0['model']+'2D_z',z)
     def test(self,model=Model(),para={},isFilter=False,isPlot=False):
         self.update(para)
         para = self.para0
+        infoL = ['model','output','strike','dip','rake','alpha','zs']
+        print('start calculate')
+        for info in infoL:
+            print(info, para[info])
+        print('saveDt',self.saveDt)
+        if self.isH:
+            print('H size',self.H.shape)
         nx = para['nx']
         nz = para['nz']
         x = np.arange(nx)*para['h']
         z = np.arange(nz)*para['h']
         vp,vs,den=model.to2D(x,z)
         if isFilter:
-            vp = ndimage.gaussian_filter(vp,10,mode='nearest')
-            vs = ndimage.gaussian_filter(vs,10,mode='nearest')
-            den = ndimage.gaussian_filter(den,10,mode='nearest')
-        with open('models/'+para['output']+'_smooth','w') as f:
+            vp = ndimage.gaussian_filter(vp,5,mode='nearest')
+            vs = ndimage.gaussian_filter(vs,5,mode='nearest')
+            den = ndimage.gaussian_filter(den,5,mode='nearest')
+        with open('models/'+para['model'],'w') as f:
             for i in range(nz):
-                f.write('%f %f %f %f 1200 600\n'%(z[i],vp[i,0],vs[i,0],den[i,0]*1e3))
+                f.write('%f %f %f %f 120000 60000\n'%(z[i],vp[i].mean()\
+                    ,vs[i].mean(),den[i].mean()*1e3))
         #return
         if isPlot:
             self.plot(x,z,vp,vs,den)
-        self.writeModel(vp,vs,den)
+        self.writeModel(vp,vs,den,x,z)
         self.writePar()
         self.run()
         self.loadRes()
-        self.saveRes()
+        with open('models/'+para['model']+'sacFile','w') as f:
+            f.write(self.saveRes())
 
     def plot(self,x,z,vp,vs,den):
         plt.close()
@@ -223,38 +244,50 @@ class NB:
             plt.xlim([x.min(),x.max()])
             plt.ylim([z.max(),z.min()])
         plt.savefig(self.resDir()+self.para0['output']+'/''model.jpg',dpi=300)
-
-
     def run(self):
         for exe in ['nbpsv2d','nbsh2d']:
             cmd = 'cd %s; %s par=%s.par'%(self.runDir(),exe,self.para0['model'])
             os.system(cmd)
     def loadRes(self,compL='VWU'):
-        self.recordsL = [read(self.runDir()+self.para0['output']+'_%s.isis'%comp) for comp in compL]
+        self.recordsL = [read(self.runDir()+self.para0['output']+'_%s.isis'%comp)\
+         for comp in compL]
     def saveRes(self):
         recordsL = self.recordsL
         para0 = self.para0
         compL = 'ENZ'
         d2k = 111.19
         t = obspy.UTCDateTime(0)
-        quakeDir = self.resDir()+para0['output']+'/'
+        quakeDir = self.resDir()+para0['model']+'/'
         if not os.path.exists(quakeDir):
             os.makedirs(quakeDir)
         for compIndex in range(3):
             records = recordsL[compIndex]
             bt,btp,bts = records()
+            if self.isH and len(self.H)==0:
+               self.H = bt[0]*0+1
             comp = compL[compIndex]
             for i in range(records.xs.shape[0]):
                 filename=quakeDir+'%d.BH%s.SAC'%(i,comp)
                 km = np.abs(records.xs[i]-records.xr[i])
                 deg = km/d2k
+                halfT=0
+                if para0['srctime'] =='g' and self.isShift:
+                    halfT = (-para0['alpha']*3+1)*para0['dt']
                 az = para0['azimuth']
-                header = {'kstnm': 'NB%d'%i, 'kcmpnm': 'BH%s'%comp, 'stla': deg,\
-                'stlo': 0,'evla': 0, 'evlo': 0, 'evdp': records.zs[i],\
+                header = {'kstnm': 'NB%d'%i, 'kcmpnm': 'BH%s'%comp,\
+                 'stla': records.xr[i]/d2k,'stel':-records.zr[i]*1000,\
+                'stlo': 0,'evla': records.xs[i]/d2k, 'evlo': 0, 'evdp': records.zs[i],\
                 'nzyear': t.year,'nzjday': t.julday, 'nzhour': t.hour, \
                 'nzmin': t.minute,'nzsec': t.second,'nzmsec': int(t.microsecond/1e3)\
-                , 'delta': records.dt[i],'b':0,'dist':km}
+                , 'delta': records.dt[i],'b':records.t[0]-halfT,'dist':km}
+                if self.isH:
+                    bt[i] = np.convolve(bt[i],self.H,'full')[:len(bt[i])]
                 sac = obspy.io.sac.sactrace.SACTrace(data=bt[i],**header).to_obspy_trace()
+                if self.saveDt>0:
+                    freq = 1/self.saveDt
+                    decN   = int(self.saveDt/self.para0['dt'])
+                    sac.filter('lowpass',freq = freq/2*0.4,zerophase=True)
+                    sac.decimate(decN, no_filter=True)
                 sac.write(filename)
         nameStr = ''
         
