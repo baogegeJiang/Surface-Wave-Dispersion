@@ -2,10 +2,12 @@ import numpy as np
 import struct
 import sys
 from scipy import signal
+import scipy
 import os
 import obspy
 from matplotlib import pyplot as plt
 from scipy import ndimage
+import random
 if sys.byteorder =='little':
     h = '<'
 else:
@@ -126,15 +128,15 @@ class NB:
     def __init__(self,para={},mainDir ='gpu_2d/',isShift=True,isH = False,H=[],\
         saveDt=-1):
         self.para0={\
-        'nx':4096,
-        'nz':1024,
+        'nx':8192,
+        'nz':2048,
         'model':'example',
-        'nt':102400,
+        'nt':204800,
         'gpuid':1,
         'xs':300,
         'zs':300,
-        'h': 2,
-        'dt':0.04,
+        'h': 1,
+        'dt':0.01,
         'srctype':'p',
         'srctime':'g',
         'alpha':-10,
@@ -152,12 +154,12 @@ class NB:
         'pml_fc':2,
         'itrecord':1  ,    
         'output':'output',
-        'nrec':90,
+        'nrec':250,
         'ixrec0':360,
         'izrec0_u':1,    
         'izrec0_w':1,
         'izrec0_v':1,
-        'idxrec':40 ,
+        'idxrec':30 ,
         'idzrec':0  ,
         'ntsnap':100000000,
         'usetable':0,
@@ -199,7 +201,7 @@ class NB:
         #np.save('models/'+self.para0['model']+'2D',x)
         #np.save('models/'+self.para0['model']+'2D_x',x)
         #np.save('models/'+self.para0['model']+'2D_z',z)
-    def test(self,model=Model(),para={},isFilter=False,isPlot=False):
+    def test(self,model=Model(),para={},isFilter=False,isPlot=False,isNoise=False):
         self.update(para)
         para = self.para0
         infoL = ['model','output','strike','dip','rake','alpha','zs']
@@ -214,23 +216,48 @@ class NB:
         x = np.arange(nx)*para['h']
         z = np.arange(nz)*para['h']
         vp,vs,den=model.to2D(x,z)
+        if isNoise:
+            print('noise')
+            noise([vp,vs,den],A=0.05/5)
+        else:
+            print('no noise')
         if isFilter:
-            vp = ndimage.gaussian_filter(vp,5,mode='nearest')
-            vs = ndimage.gaussian_filter(vs,5,mode='nearest')
-            den = ndimage.gaussian_filter(den,5,mode='nearest')
+            vp = ndimage.gaussian_filter(vp,10,mode='nearest')
+            vs = ndimage.gaussian_filter(vs,10,mode='nearest')
+            den = ndimage.gaussian_filter(den,10,mode='nearest')
+        self.saveByDist(x,z,vp,vs,den)
         with open('models/'+para['model'],'w') as f:
             for i in range(nz):
                 f.write('%f %f %f %f 120000 60000\n'%(z[i],vp[i].mean()\
                     ,vs[i].mean(),den[i].mean()*1e3))
         #return
         if isPlot:
+            print('ploting')
             self.plot(x,z,vp,vs,den)
+            print('plot done')
         self.writeModel(vp,vs,den,x,z)
         self.writePar()
         self.run()
         self.loadRes()
         with open('models/'+para['model']+'sacFile','w') as f:
             f.write(self.saveRes())
+    def saveByDist(self,x,z,vp,vs,den):
+        para0 = self.para0
+        x = x - x[para0['xs']]
+        z = z - z[para0['zs']]
+        xNew = np.arange(-20,x[-1],10)
+        zNew = np.arange(0,z[-1],5)
+        vpNew = scipy.interpolate.interp2d(x,z, vp, kind='cubic')(xNew, zNew)
+        vsNew = scipy.interpolate.interp2d(x,z, vs, kind='cubic')(xNew, zNew)
+        denNew = scipy.interpolate.interp2d(x,z, den, kind='cubic')(xNew, zNew)
+        if not os.path.exists('models/'+para0['model']+'_'):
+            os.mkdir('models/'+para0['model']+'_')
+        for j in range(len(xNew)):
+            with open('models/'+para0['model']+'_/%d'%xNew[j],'w') as f:
+                for i in range(len(zNew)):
+                    f.write('%f %f %f %f 120000 60000\n'%(zNew[i],vpNew[i,j]\
+                        ,vsNew[i,j],denNew[i,j]))
+
 
     def plot(self,x,z,vp,vs,den):
         plt.close()
@@ -238,12 +265,14 @@ class NB:
         for i in range(3):
             m=mL[i]
             plt.subplot(3,1,i+1)
-            plt.pcolor(x,z,m)
+            plt.pcolor(x,z,m-m.mean(axis=1,keepdims=True))
             plt.ylabel('z/km')
             plt.xlabel('x/km')
             plt.xlim([x.min(),x.max()])
             plt.ylim([z.max(),z.min()])
-        plt.savefig(self.resDir()+self.para0['output']+'/''model.jpg',dpi=300)
+        if not os.path.exists(self.resDir()+self.para0['model']+'/'):
+            os.makedirs(self.resDir()+self.para0['model']+'/')
+        plt.savefig(self.resDir()+self.para0['model']+'/'+'model.jpg',dpi=300)
     def run(self):
         for exe in ['nbpsv2d','nbsh2d']:
             cmd = 'cd %s; %s par=%s.par'%(self.runDir(),exe,self.para0['model'])
@@ -279,7 +308,8 @@ class NB:
                 'stlo': 0,'evla': records.xs[i]/d2k, 'evlo': 0, 'evdp': records.zs[i],\
                 'nzyear': t.year,'nzjday': t.julday, 'nzhour': t.hour, \
                 'nzmin': t.minute,'nzsec': t.second,'nzmsec': int(t.microsecond/1e3)\
-                , 'delta': records.dt[i],'b':records.t[0]-halfT,'dist':km}
+                , 'delta': records.dt[i],'b':records.t[0]-halfT,'dist':km,\
+                'az':para0['azimuth']}
                 if self.isH:
                     bt[i] = np.convolve(bt[i],self.H,'full')[:len(bt[i])]
                 sac = obspy.io.sac.sactrace.SACTrace(data=bt[i],**header).to_obspy_trace()
@@ -296,5 +326,22 @@ class NB:
                 nameStr+='%s/%d.BH%s.SAC '%(quakeDir,i,comp)
             nameStr +='\n'
         return nameStr
+
+def noise(ML,loop=10,A=0.05):
+    shape = ML[0].shape
+    nz = shape[0]
+    nx = shape[1]
+    xL = np.arange(nx).tolist()
+    zL = np.arange(nz).tolist()
+    for i in range(loop):
+        x = np.array(random.sample(xL,2))
+        z = np.array(random.sample(zL,2))
+        x.sort()
+        z.sort()
+        randA = (np.random.rand()-0.5)/2*A
+        for M in ML:
+            M[z[0]:z[1],x[0]:x[1]]*=1+randA
+
+
 
 

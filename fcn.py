@@ -464,6 +464,10 @@ def trainAndTestCross(model0,model1,corrLTrain0,corrLTrain1,corrLTest,outputDir=
             model0.setTrain(['conv','CONV'],True)
             model1.setTrain(['dconv','DCONV'],True)
             per1 = 0.5
+        if mode =='0':
+            model0.setTrain([],False)
+            model1.setTrain([],True)
+            per1 = 0.5
         xTest, yTest, tTest =corrLTest(np.arange(2000,4000))
         model0.trainByXYTCross(model1,corrLTrain0,corrLTrain1,xTest=xTest,yTest=yTest,per1=per1)
     xTest, yTest, tTest =corrLTest(np.arange(2000))

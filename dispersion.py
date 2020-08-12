@@ -25,7 +25,7 @@ class config:
         T=np.array([0.5,1,5,10,20,30,50,80,100,150,200,250,300]),threshold=0.1,expnt=10,dk=0.1,\
         fok='/k',gpdcExe=gpdcExe,order=0,minSNR=5,isCut=False,minDist=0,maxDist=1e8,\
         minDDist=0,maxDDist=1e8,para={},isFromO=False,removeP=False,doFlat=True,\
-        QMul=1):
+        QMul=1,modelMode='norm', convolveSrc=False):
         para0= {\
             'delta0'    :0.02,\
             'freq'      :[-1, -1],\
@@ -71,6 +71,8 @@ class config:
         self.removeP    = removeP
         self.doFlat    = doFlat
         self.QMul      = QMul
+        self.modelMode = modelMode
+        self.convolveSrc = convolveSrc
     def getDispL(self):
         return [disp(nperseg=self.nperseg,noverlap=self.noverlap,fs=1/self.delta,\
             halfDt=self.halfDt,xcorrFunc = xcorrFunc) for xcorrFunc in self.xcorrFuncL]
@@ -109,7 +111,7 @@ class config:
                         model[j,k] = int(model[j,k]*(np.random.rand()+8)/8.5)
                 model[j,1] = model[j,2]*(1.7+2*(np.random.rand()-0.5)*0.18)
             np.savetxt('%s%d'%(modelFile,i),model)
-    def genFvFile(self,modelFile='',fvFile=''):
+    def genFvFile(self,modelFile='',fvFile='',afStr=''):
         if len(modelFile)==0:
             modelFile = self.originName
         if len(fvFile) ==0:
@@ -120,10 +122,13 @@ class config:
             fvFile+= '_'+self.getMode
             fvFile+= '_'+self.pog
             fvFile='%s_%d'%(fvFile,self.order)
-        m = self.getModel(modelFile)
+        if afStr != '':
+            fvFile='%s%s'%(fvFile,afStr)
+        m = self.getModel(modelFile+afStr)
         print(m.modelFile)
         f,v=m.calDispersion(order=0,calMode=self.calMode,threshold=self.threshold,T=self.T,pog=self.pog)
         f = fv([f,v],'num')
+        print(fvFile)
         f.save(fvFile)
     def calFv(self,iL,pog=''):
         pog0 = self.pog
@@ -132,10 +137,21 @@ class config:
         self.pog = pog
         for i in iL:
             modelFile = self.getModelFileByIndex(i)
-            self.genFvFile(modelFile)
+            if isinstance(modelFile,list):
+                for modelFileTmp in modelFile:
+                    afStr = '_/'+modelFileTmp.split('/')[-1]
+                    print(modelFileTmp[:-len(afStr)]+afStr)
+                    self.genFvFile(modelFileTmp[:-len(afStr)],afStr=afStr)
+            else:
+                self.genFvFile(modelFile)
         self.pog=pog0
-    def getModelFileByIndex(self,i):
-        return '%s%d'%(self.originName,i)
+    def getModelFileByIndex(self,i,modelMode=''):
+        if modelMode=='':
+            modelMode = self.modelMode
+        if modelMode == 'norm':
+            return '%s%d'%(self.originName,i)
+        elif modelMode == 'fileP':
+            return glob('%s%d_/*[0-9]'%(self.originName,i))
     def plotModelL(self,modelL):
         plt.close()
         for model in modelL:
@@ -224,8 +240,12 @@ class config:
         disp = self.getDispL()[0]
         if minSNR <0:
             minSNR = self.minSNR
-        for i in range(count):
-            modelFile = self.getModelFileByIndex(i)
+        if isinstance(count,int):
+            iL = range(count)
+        else:
+            iL = count
+        for i in iL:
+            modelFile = self.getModelFileByIndex(i,modelMode='norm')
             sacsLFile = modelFile+'sacFile'
             sacsL,sacNamesL,srcSac = self.getSacFile(sacsLFile,randDrop=randDrop,para=para)
             if self.isFromO:
@@ -243,6 +263,7 @@ class config:
     def getSacFile(self,sacFile,randDrop=0.3,para={}):
         sacsL = []
         sacNamesL = []
+        srcSac = ''
         self.para0.update(para)
         print(self.para0)
         with open(sacFile) as f:
@@ -258,7 +279,8 @@ class config:
                     randomSource(2,duraCount,srcData)
             else:
                 randomSource(4,duraCount,srcData)
-            print('convolve data')
+            if self.convolveSrc:
+                print('convolve data')
         for line in lines:
             if line[0]=='#':
                 srcSac = line[1:]
@@ -270,7 +292,7 @@ class config:
             sacsL.append( [obspy.read(sacName)[0] for sacName in sacNames])
             if self.para0['freq'][0] > 0:
                 for sac in sacsL[-1]:
-                    if len(srcData)>0:
+                    if len(srcData)>0 and self.convolveSrc:
                         sac.data=np.convolve(sac.data,srcData,'same')
                     sac.filter(self.para0['filterName'],\
                         freqmin=self.para0['freq'][0], freqmax=self.para0['freq'][1], \
@@ -868,6 +890,7 @@ class fv:
      element in v 
     '''
     def __init__(self,input,mode='num',threshold=0.06):
+        self.mode = mode
         if mode == 'num':
             self.f = input[0]
             self.v = input[1]
@@ -896,19 +919,56 @@ class fv:
                 v = np.array([-1,0])
             self.f = f 
             self.v = v
+        if mode == 'fileP':
+            print(input+'_/*')
+            fileL = glob(input+'_/*')
+            distL = []
+            vL    = []
+            fL    = []
+            for file in fileL:
+                distL.append (float(file.split('/')[-1]))
+                fvM = np.loadtxt(file)
+                fL.append(fvM[:,0]) 
+                vL.append(fvM[:,1:2])
+            self.f = fL[0]
+            self.dist = np.array(distL)
+            self.v = np.concatenate(vL,axis=1)
+            iL = self.dist.argsort()
+            self.dist= self.dist[iL]
+            self.v= self.v[:,iL]
+            
+
+
         self.interp = self.genInterp()
     def genInterp(self):
-        return interpolate.interp1d(self.f,self.v,kind='linear',\
-            bounds_error=False,fill_value=1e-8)
-    def __call__(self,f,threshold=0.1):
+        if self.mode == 'fileP':
+            return interpolate.interp2d(self.dist,self.f,self.v,kind='linear',\
+                bounds_error=False,fill_value=1e-8)
+        else:
+            return interpolate.interp1d(self.f,self.v,kind='linear',\
+                bounds_error=False,fill_value=1e-8)
+    def __call__(self,f,dist0=0, dist1=0,threshold=0.1,N=1000):
         shape0 =f.shape
         f = f.reshape([-1])   
-        vL =  self.interp(f)
+        if self.mode == 'fileP':
+            dDist = (dist1-dist0)/10000
+            distL = np.arange(dist0,dist1+0.0001,dDist)
+            vL = self.interp(distL,f)
+            iL = f.argsort()
+            vL = (1/((1/vL).mean(axis=1)))
+            vLNew = vL.copy()
+            for i in range(iL.size):
+                vLNew[i] = vL[iL[i]]
+            vL = vLNew
+        else:
+            vL =  self.interp(f)
         #print((np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1).shape)
         dfR = (np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1)/f
         vL[dfR>threshold]=vL[dfR>threshold]*0+1e-8
         return vL.reshape(shape0)
     def save(self,filename):
+        if not os.path.exists(os.path.dirname(filename)):
+            os.mkdir(os.path.dirname(filename))
         np.savetxt(filename, np.concatenate([self.f.reshape([-1,1]),\
             self.v.reshape([-1,1])],axis=1))
 
@@ -1134,7 +1194,7 @@ class corr:
         timeDis = np.zeros(dim)
         f = f.reshape([1,-1])
         timeL = self.timeL.reshape([-1,1])
-        v = FV(f)
+        v = FV(f,self.dis[0],self.dis[1])
         t = self.dDis/v
         tmpSigma = sigma
         if byT:
@@ -1478,7 +1538,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             dt0 = t0 - sacsL[i][0].stats['sac']['b']
             i0 = max(0,int(dt0/sacsL[i][0].stats['sac']['delta']))
 
-            tEnd = distL[i]/2.5
+            tEnd = distL[i]/1.5#2.5
             t1 = max(1,tEnd+100+5*(np.random.rand()-0.5))
             dt1 = t1 - sacsL[i][0].stats['sac']['b']
             i1 = min(sacsL[i][0].data.size,int(dt1/sacsL[i][0].stats['sac']['delta']))
