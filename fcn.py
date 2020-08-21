@@ -126,7 +126,7 @@ class fcnConfig:
         '''
         self.inputSize  = [4096,1,4]
         self.outputSize = [4096,1,30]
-        self.featureL   = [min(2**(i+1)+30,80) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
+        self.featureL   = [min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
         self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),\
         (4,1),(2,1),(2,1),(2,1)]
         self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),\
@@ -137,7 +137,7 @@ class fcnConfig:
         #self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
         self.dropOutL   = []#[1,3,5]
         self.dropOutRateL= []#[0.2,0.2,0.2]
-        self.activationL= ['relu','relu','tanh','relu','relu',\
+        self.activationL= ['relu','relu','relu','relu','relu',\
         'relu','relu','relu','relu','relu','relu']
         self.activationL= ['relu','relu']+['swish' for i in range(3)]+['relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
@@ -252,6 +252,7 @@ class model(Model):
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.9)
             if i>10 and i%5==0:
                 perN += int(perN*0.05)
+                perN = min(1000, perN)
         self.set_weights(w0)
     def trainByXYTCross(self,self1,XYT0,XYT1,N=2000,perN=100,batchSize=None,\
         xTest='',yTest='',k0 = -1,t='',per1=0.5):
@@ -399,6 +400,7 @@ class model(Model):
         K.set_value(self.optimizer.lr,  lr0)
 
 tTrain = (10**np.arange(0,1.000001,1/29))*16
+
 def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     sigmaL=[4,3,2,1.5]):
     '''
@@ -406,21 +408,24 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    w0 = 8#5#10##model.config.lossFunc.w
+    w0 = 8#8#5#10##model.config.lossFunc.w
+    testCount = len(corrLTest)
+    showCount = int(len(corrLTest)/5)
+    showD     = int(showCount/30)
     for sigma in sigmaL:
         model.config.lossFunc.w = w0*(4/sigma)**0.5
         corrLTrain.timeDisKwarg['sigma']=sigma
         corrLTest.timeDisKwarg['sigma']=sigma
         corrLTest.iL=np.array([])
         model.compile(loss=model.config.lossFunc, optimizer='Nadam')
-        xTest, yTest, tTest =corrLTest(np.arange(3000,6000))
+        xTest, yTest, tTest =corrLTest(np.arange(showCount,testCount))
         model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest)
         
         
-    xTest, yTest, tTest =corrLTest(np.arange(3000))
+    xTest, yTest, tTest =corrLTest(np.arange(showCount))
     corrLTest.plotPickErro(model.predict(xTest),tTrain,\
     fileName=outputDir+'erro.jpg')
-    iL=np.arange(0,1000,50)
+    iL=np.arange(0,showCount,showD)
     model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
     T=tTrain,outputDir=outputDir)
 

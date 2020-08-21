@@ -149,8 +149,8 @@ defaultStats = {'network':'00','station':'00000','channel':'000'}
 class Station(Dist):
     def __init__(self,*argv,**kwargs):
         super().__init__(*argv,**kwargs)
-        if not isinstance(self['compBase'],NoneType): 
-            self['comp'] = [self['compBase']+s for s in 'ENZ' ]
+        #if not isinstance(self['compBase'],NoneType): 
+        #    self['comp'] = [self['compBase']+s for s in 'ENZ' ]
         #print(self['index'])
         if isinstance( self['index'],NoneType)==False and isinstance( self['nickName'],NoneType):
             self['nickName'] = self.getNickName(self['index'])
@@ -158,9 +158,9 @@ class Station(Dist):
     def defaultSet(self):
         super().defaultSet()
         self.keysIn   = 'net sta compBase lo la erroLo erroLa dep erroDep '.split()
-        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum'.split()
-        self.keysType ='S S S f f f f f f S l f F S S S'.split()
-        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','']
+        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum nameMode'.split()
+        self.keysType ='S S S f f f f f f S l f F S S S S'.split()
+        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','','']
         self.keysName = ['net','sta']
     def getNickName(self, index):
         nickName = ''
@@ -174,7 +174,18 @@ class Station(Dist):
         if isinstance(time1, NoneType):
             time1 = time0+86399
         return [self['nameFunc'](self['net'],self['sta'], \
-            comp, time0,time1) for comp in self['comp']]
+            comp, time0,time1,self['nameMode']) for comp in self['comp']]
+    def __setitem__(self,key,value):
+        super().__setitem__(key,value)
+        if not key in self.keys:
+            print('no ',key)
+        self.l[self.index(key)] = value
+        if key =='compBase':
+            self['comp'] = [self['compBase']+s for s in 'ENZ']
+
+        if key =='net' and self['nameMode']=='':
+            self['nameMode'] = self['net']
+
     def baseSacName(self,resDir='',strL='ENZ',infoStr=''):
         if infoStr=='':
             return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in strL]
@@ -185,13 +196,13 @@ class Station(Dist):
         self.das=[]
         for i in range(3):
             sensor, das=  self['nameFunc'].getInventory(self['net'],self['sta'],\
-                self['sensorName'],self['dasName'],comp=self['comp'][i])
+                self['sensorName'],self['dasName'],comp=self['comp'][i],nameMode=self['nameMode'])
             self.sensor.append(sensor)
             self.das.append(das)
         return self.sensor,self.das
     def getSensorDas(self):
         if self['sensorName'] == '' or self['dasName']=='':
-            sensorName,dasName,sensorNum=self['nameFunc'].getSensorDas(self['net'],self['sta'])
+            sensorName,dasName,sensorNum=self['nameFunc'].getSensorDas(self['net'],self['sta'],nameMode=self['nameMode'])
             self['sensorName'] = sensorName
             self['dasName']    = dasName
             self['sensorNum'] = sensorNum
@@ -203,6 +214,7 @@ class Station(Dist):
 class StationList(list):
     def __init__(self,*argv,**kwargs):
         super().__init__()
+        self.inD = {}
         if isinstance(argv[0],list):
             for sta in argv[0]:
                 self.append(sta)
@@ -228,7 +240,7 @@ class StationList(list):
             self.append(Station(**inD))
             index+=1
         self.inD = inD
-    def write(self,fileName,*argv):
+    def write(self,fileName,*argv,**kwargs):
         with open(fileName,'w+') as f:
             keysOut = ''
             if 'keysIn' in self.inD:
@@ -241,11 +253,19 @@ class StationList(list):
                     sta.keysIn = keysOut
             keysOut = '#' + self[0].keyIn()+'\n'
             f.write(keysOut)
-            f.write(self.__str__())
-    def __str__(self):
+            if 'indexL' in kwargs:
+                f.write(self.__str__(kwargs['indexL']))
+            else:
+                f.write(self.__str__())
+    def __str__(self,indexL=[]):
         line =''
-        for sta in self:
-            line += '%s\n'%sta
+        if len(indexL)==0:
+            for sta in self:
+                line += '%s\n'%sta
+        else:
+            for i in indexL:
+                sta = self[i]
+                line += '%s\n'%sta
         return line 
     def loc0(self):
         loc = np.zeros(3)
@@ -266,6 +286,18 @@ class StationList(list):
     def getSensorDas(self):
         for station in self:
             sensorName, dasName,sensorNum =  station.getSensorDas()
+    def find(self,sta,net=''):
+        for station in self:
+            if station['sta'] != sta:
+                continue
+            if net !='' and station['net'] != net:
+                continue
+            return station
+        return None
+    def Find(self,netSta, spl='.'):
+        net, sta = netSta.split(spl)
+        return self.find(sta,net)
+
 
         
 class Record(Dist):
@@ -292,10 +324,10 @@ class Quake(Dist):
     def defaultSet(self):
         #               quake: 34.718277 105.928949 1388535219.080064 num: 7 index: 0    randID: 1    filename: 16071/1388535216_1.mat -0.300000
         super().defaultSet()
-        self.keysIn   = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep '.split()
-        self.keys     = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep stationList strTime no'.split()
-        self.keysType = 'S      f        f           f             S     F   S     f     S     f      S     S        f    f   l  S S'.split()
-        self.keys0    = [None,  None,     None,      None,         None, None,None,None, None, None,  None,  None,   None,0]
+        self.keysIn   = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep'.split()
+        self.keys     = 'type   la       lo          time          para0 num para1 index para2 randID para3 filename ml   dep stationList strTime no YMD HMS'.split()
+        self.keysType = 'S      f        f           f             S     F   S     f     S     f      S     S        f    f   l  S S S S'.split()
+        self.keys0    = [None,  None,     None,      None,         None, None,None,None, None, None,  None,  None,   None,0 ,'','']
         self.keysName = ['time','la','lo']
     def Append(self,tmp):
         if isinstance(tmp,Record):
@@ -405,13 +437,19 @@ class Quake(Dist):
         'corners'   :2,\
         'zerophase' :True,\
         'maxA'      :1e5,\
+        'output': 'VEL'
         }
         para0.update(para)
         print(para0)
         para = para0
+        respStr += '_'+para['output']
         respDone = False
         if para['freq'][0] > 0:
             print('filting ',para['freq'])
+        if 'pre_filt' in para:
+            print('pre filting ',para['pre_filt'])
+        if 'output' in para:
+            print('outputing ',para['output'])
         for staIndex in range(len(stations)):
             station = stations[staIndex]
             if remove_resp :
@@ -502,8 +540,13 @@ class Quake(Dist):
                                 sac.stats.update({'channel': station['compBase']+strL[channelIndex]})
                                 sac.stats.update({'knetwk': station['net'],'network': station['net']})
                             #print(sac.stats,sensor)
-                            sac.remove_response(inventory=sensor,\
-                            output="VEL",water_level=60)                           
+                            if 'pre_filt' in para:
+                                sac.remove_response(inventory=sensor,\
+                                    output=para['output'],water_level=60,\
+                                    pre_filt=para['pre_filt'])
+                            else:
+                                sac.remove_response(inventory=sensor,\
+                                    output=para['output'],water_level=60)                           
                             sac.stats.update(station.defaultStats)
                             sac.remove_response(inventory=das,\
                             output="VEL",water_level=60)
@@ -517,9 +560,18 @@ class Quake(Dist):
                                 plt.plot(timeL,data/data.std(),'r',linewidth=0.5)
                     if para['freq'][0] > 0:
                         for sac in sacsL[-1]:
-                            sac.filter(para['filterName'],\
-                                freqmin=para['freq'][0], freqmax=para['freq'][1], \
-                                corners=para['corners'], zerophase=para['zerophase'])
+                            if para['filterName']=='bandpass':
+                                sac.filter(para['filterName'],\
+                                    freqmin=para['freq'][0], freqmax=para['freq'][1], \
+                                    corners=para['corners'], zerophase=para['zerophase'])
+                            elif para['filterName']=='highpass':
+                                sac.filter(para['filterName'],\
+                                    freq=para['freq'][0],  \
+                                    corners=para['corners'], zerophase=para['zerophase'])
+                            elif para['filterName']=='lowpass':
+                                sac.filter(para['filterName'],\
+                                    freq=para['freq'][0],  \
+                                    corners=para['corners'], zerophase=para['zerophase'])
                     if isPlot:
                         plt.savefig(resSacNames[0]+'.jpg',dpi=200)
                     if isSave and remove_resp:
@@ -552,6 +604,8 @@ class Quake(Dist):
         super().__setitem__(key,value)
         if key == 'time' :
             self['strTime'] = UTCDateTime(self['time']).strftime('%Y:%m:%d %H:%M:%S.%f')
+        if key =='HMS' and self['YMD']!='' and self['HMS']!='':
+            self['time'] = UTCDateTime(self['YMD'] + ' ' + self['HMS'])
 
 
 
@@ -669,17 +723,19 @@ class QuakeL(list):
                         f.write('*%s\n'%recordKeysIn)
                     f.write('%s\n'%record)
     def select(self,req):
-        index = []
-        for i in range(len(self)):
-            if  self[i].select(req):
-                print('find ', self[i])
-                index.append(i)
-        quakes = self.copy()
-        self.clear()
-        for i in index:
-            self.append(quakes[i])
+        for index in range(len(self)-1,-1,-1):
+            quake = self[index]
+            if not quake.select(req):
+                self.pop(index)
+            else:
+                print('find ', quake)
+        #quakes = self.copy()
+        #self.clear()
+        #for i in index:
+        #    self.append(quakes[i])
     def cutSac(self, *argv,**kwargs):
         for quake in self:
+            print(quake)
             quake.cutSac(*argv,**kwargs)
     def copy(self):
         quakes = QuakeL()
@@ -699,10 +755,29 @@ class QuakeL(list):
 
 
 
-def adjust(data,stloc=None,kzTime=None,tmpFile='test.sac',decMul=-1,eloc=None,chn=None,sta=None,\
-    net=None,o=None):
+def adjust(data,stloc=None,kzTime=None,tmpFile='test.sac',decMul=-1,\
+    eloc=None,chn=None,sta=None,net=None,o=None):
     if decMul>1 :
-        data.decimate(int(decMul),no_filter=True)
+        decMul = int(decMul)
+        if decMul<16:
+            data.decimate(int(decMul),no_filter=False)#True
+        else:
+            if decMul%2==0:
+                data.decimate(2,no_filter=False)
+                decMul/=2
+            if decMul%2==0:
+                data.decimate(2,no_filter=False)
+                decMul/=2
+            if decMul%5==0:
+                data.decimate(5,no_filter=False)
+                decMul/=5
+            if decMul%5==0:
+                data.decimate(5,no_filter=False)
+                decMul/=5
+            if decMul>1 :
+                data.decimate(int(decMul),no_filter=False)
+            if np.random.rand()<0.01:
+                print(data)
     if data.stats['_format']!='SAC':
         data.write(tmpFile,format='SAC')
         data=obspy.read(tmpFile)[0]

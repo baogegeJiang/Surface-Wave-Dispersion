@@ -3,6 +3,10 @@ import os
 import numpy as np
 from obspy import UTCDateTime,read,read_inventory
 from glob import glob
+himaNet = ['hima']
+NECE    = ['YP','AH','BJ','BU','CQ','FJ','GD','HA','HB','HE',\
+'HI','HL','JL','JS','JX','LN','NM','NX','QH','SC','SD','SH','SN',\
+'SX','TJ','XJ','XZ','YN','ZJ',]
 def convertFileLst(fileName):
     with open(fileName, 'r') as f:
         lines = f.readlines()
@@ -34,57 +38,72 @@ class filePath:
                 staName = elements[0] + ' ' +elements[1]
                 self.himaDir[staName] = elements[2:]
         self.InventoryD={}
-    def __call__(self,net,sta,comp,time0,time1):
+    def __call__(self,net,sta,comp,time0,time1,nameMode=''):
         '''
         you should specify the timeL and staDirL by net sta comp and time0/1
 
         '''
+        if nameMode == '':
+            nameMode = net
         time1 = max(time0+1 ,time1)
-        staDirL = self.getStaDirL(net,sta)
+        staDirL = self.getStaDirL(net,sta,nameMode)
         timeL = np.arange(time0,time1,3600).tolist()
         timeL.append(time1)
         fileL = []
         for staDir in staDirL:
             for time in timeL:
-                tmpL = self.getFile(net,sta,comp,time,staDir)
+                tmpL = self.getFile(net,sta,comp,time,staDir,nameMode= nameMode)
                 for tmp in tmpL:
                     if tmp not in fileL:
                         fileL.append(tmp)
         return fileL
-    def getFile(self,net,sta,comp,time,staDir):
+    def getFile(self,net,sta,comp,time,staDir,nameMode=''):
         if not isinstance(time,UTCDateTime):
             time = UTCDateTime(time)
-        if net == 'hima':
+        if nameMode == '':
+            nameMode = net
+        if nameMode =='hima':
             pattern = '%s/%s.*.%s.m'%(staDir,time.strftime('R%j.01/%H/%y.%j')\
                 ,filePath.himaComp[comp[-1]])
-        elif net == 'GS' or net == 'NM':
+        elif nameMode in ['GS','NM']:
             pattern = '%s/%s/%s.%s.%s.%s.SAC'%(staDir,time.strftime('%Y%m/'),\
                 net,sta,time.strftime('%Y%m%d'),comp)
-        elif net == 'YP':
+        elif nameMode == 'YP':
             #staDir/2009/R304/NE67.2009.304.00.00.00.BHZ.sac
             pattern = '%s/%s/%s.%s.*%s.sac'%(staDir,time.strftime('%Y/R%j'),sta,\
                 time.strftime('%Y.%j'),comp)
+        elif nameMode == 'CEA':
+            #staDir/2009/R304/NE67.2009.304.00.00.00.BHZ.sac
+            #2010/001/ANQ.2009365160003.AH.00.D.BHN.sac
+            pattern = '%s/%s/%s*%s.sac'%(staDir,time.strftime('%Y/%j'),sta,comp)
         #print('##',pattern)
         return glob(pattern)
-    def getStaDirL(self,net,sta):
+    def getStaDirL(self,net,sta,nameMode=''):
         staDirL = []
-        if net == 'GS' or net =='NM':
+
+        if nameMode == '':
+            nameMode = net
+        if nameMode in ['GS','NM']:
             staDirL = ['/media/jiangyr/shanxidata21/nmSacData/'+net+\
             '.'+sta+'/']
-        if net == 'YP':
+        if nameMode == 'YP':
             staDirL = ['/media/commonMount/data2/NECESSARRAY_SAC/NEdata*/%s/'%sta]
+        if nameMode == 'CEA':
+            staDirL = ['/media/jiangyr/shanxidata21/CEA/%s/%s/'%(net,sta)]
         staName = net + ' ' + sta
         if staName in self.himaDir:
             staDirL = self.himaDir[staName]
         return staDirL
-    def getSensorDas(self,net,sta):
+    def getSensorDas(self,net,sta,nameMode=''):
+        if nameMode == '':
+            nameMode = net
         staDirL = self.getStaDirL(net,sta)
-        if net == 'YP':
+        if nameMode == 'YP':
             resp = glob('resp/YP/*%s*%s*Z'%(net,sta))
             if len(resp)>0:
                 return resp[0], '130S','NECE'
             else:
-                return 'UNKNOWN','UNKNOWN','UNKNOWN'
+                return 'UNKNOWN','UNKNOWN','UNKNOWN' 
         if net == 'hima':
             logFileL=[]
             for staDir in staDirL:
@@ -144,16 +163,18 @@ class filePath:
                     return sensorName,dasName,sensorNum
                 else:
                     return 'UNKNOWN','UNKNOWN','UNKNOWN'
-    def getInventory(self,net,sta,sensorName='',dasName='',comp='BHZ'):
+    def getInventory(self,net,sta,sensorName='',dasName='',comp='BHZ',nameMode=''):
+        if nameMode == '':
+            nameMode = net
         respDir = 'resp/'
         if sensorName=='' or dasName=='':
             sensorName, dasName, sensorNum =self.getSensorDas(net,sta)
-        if net =='YP':
+        if nameMode in ['YP','CEA']:
             sensorName=sensorName[:-3]
         if sensorName+comp not in self.InventoryD:
-            if net == 'hima':
+            if nameMode == 'hima':
                 file='%s/%s.%s.resp'%(respDir,net,sensorName)
-            if net == 'YP':
+            if nameMode in ['YP','CEA']:
                 file = sensorName+comp
             self.InventoryD[sensorName+comp] = read_inventory(file)
         if dasName+comp not in self.InventoryD:
