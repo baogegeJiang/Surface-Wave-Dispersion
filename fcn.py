@@ -410,7 +410,7 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
     w0 = 8#8#5#10##model.config.lossFunc.w
     testCount = len(corrLTest)
-    showCount = int(len(corrLTest)/5)
+    showCount = int(len(corrLTest)*2/4)
     showD     = int(showCount/30)
     for sigma in sigmaL:
         model.config.lossFunc.w = w0*(4/sigma)**0.5

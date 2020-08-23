@@ -11,7 +11,10 @@ import obspy
 from multiprocessing import Process, Manager
 import random
 import seism
+from distaz import DistAz
 from glob import glob
+from obspy.taup import TauPyModel
+from seism import taup
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -200,17 +203,14 @@ class config:
         print(tmpName)
         return fv(tmpName,'file')
     def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1,
-        isLoadFv=False,fvD={},isByQuake=False,quakesRef=[]):
+        isLoadFv=False,fvD={},isByQuake=False,quakesRef=[],modelFile='models/prem'):
         corrL = []
         disp = self.getDispL()[0]
         if minSNR <0:
             minSNR = self.minSNR
         self.para0.update(para)
         for quake in quakes:
-            if isByQuake:
-                quakeName=quake.name('_')
-            else:
-                quakeName=''
+            quakeName=quake.name('_')
             if len(quakesRef)>0:
                 index = quakesRef.find(quake)
                 if index>=0:
@@ -223,7 +223,7 @@ class config:
             #print('###',sacsL)
             sacNamesL = quake.getSacFiles(stations,isRead = False,strL='ZNE',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
-                remove_resp=remove_resp)
+                remove_resp=remove_resp,para=self.para0)
             if self.isFromO:
                 for sacs in sacsL:
                     sacs[0] = seism.sacFromO(sacs[0])
@@ -235,7 +235,8 @@ class config:
                 minSNR=minSNR,minDist=self.minDist,maxDist=self.maxDist,\
                 minDDist=self.minDDist,maxDDist=self.maxDDist,\
                 srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO,\
-                removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv,quakeName=quakeName)
+                removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv,quakeName=quakeName,\
+                isByQuake=isByQuake)
             print('###########',len(corrL))
         return corrL
     def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
@@ -1021,6 +1022,9 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
             stat='sta1Loc'
             continue
         if stat=='sta1Loc':
+            sta1La, sta1Lo = line.split()[:2]
+            sta1La = float(sta1La)
+            sta1Lo = float(sta1Lo)
             stat='QuakeInfo0'
             continue
         if stat=='QuakeInfo0':
@@ -1040,6 +1044,9 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
             stat='sta0Loc'
             continue
         if stat=='sta0Loc':
+            sta0La, sta0Lo = line.split()[:2]
+            sta0La = float(sta0La)
+            sta0Lo = float(sta0Lo)
             stat='QuakeInfo1'
             continue
         if stat=='QuakeInfo1':
@@ -1066,13 +1073,22 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
             v[i]=float(line)
             i+=1
             if i ==fNum:
+                stat='next'
+                az0 = DistAz(la,lo,sta0La,sta0Lo).getAz()
+                az1 = DistAz(la,lo,sta1La,sta1Lo).getAz()
+                baz0 = DistAz(la,lo,sta0La,sta0Lo).getBaz()
+                az01 = DistAz(sta0La,sta0Lo,sta1La,sta1Lo).getAz()
+                if (az0-az1+10)%360>20:
+                    continue
+                if (baz0-az01+10)%180>20:
+                    continue     
                 quake = seism.Quake(time=time,la=la,lo=lo,dep=dep,ml=ml)
                 name = quake.name('_')
                 if name not in quakeD:
                     quakeD[name]=quake
                 key='%s_%s'%(name,pairKey)
                 fvD[key]=fv([f,v])
-                stat='next'
+                
                 continue
 
 def averageFVL(fvL):
@@ -1289,6 +1305,22 @@ class corr:
             #print(aF,aF<rThreshold)
             timeDis[:,aF<rThreshold]=timeDis[:,aF<rThreshold]*0
         return timeDis,t0
+    def compareSpec(self,N=20):
+        spec0 = self.toFew(np.abs(np.fft.fft(self.x0)),N)
+        spec1 = self.toFew(np.abs(np.fft.fft(self.x1)),N)
+        return (spec0*spec1).sum()
+    def toFew(self,spec, N=20):
+        spec[:5]*=0
+        spec[-5:]*=0
+        N0 = len(spec)
+        d  = int(N0/(N-1))
+        i0 = np.arange(0,N0-d,d)
+        i1 = np.arange(d,N0,d)
+        specNew = np.zeros(len(i0))
+        for i in range(len(i0)):
+            specNew[i] = spec[i0[i]:i1[i]].sum()
+        specNew  /= (specNew**2).sum()**0.5
+        return specNew
     def compareInOut(self,yin,yout,t0):
         aIn = yin.argmax(axis=0)
         posIn   = yin.argmax(axis=0)/self.fs
@@ -1532,7 +1564,7 @@ class corrL(list):
             sta1 = corr.name1
             station0 = stations.Find(sta0)
             station1 = stations.Find(sta1)
-            timeStr, laStr, loStr = self.quakeName.split('_')
+            timeStr, laStr, loStr =corr.quakeName.split('_')
             time = float(timeStr)
             la   = float(laStr)
             lo   = float(loStr)
@@ -1567,7 +1599,8 @@ class corrL(list):
 
 
 
-    def getAndSave(self,model,fileName,stations,isPlot=False,isSimple=True,D=0.2,isLimit=False):
+    def getAndSave(self,model,fileName,stations,isPlot=False,isSimple=True,\
+        D=0.2,isLimit=False,resDir ='models/predict/'):
         N = len(self)
         if 'T' in self.timeDisKwarg:
             T = self.timeDisKwarg['T']
@@ -1584,7 +1617,7 @@ class corrL(list):
             v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,D=D,isLimit=isLimit)
             v0[i0:i1],prob0[i0:i1]=self.getV(y)
         with open(fileName,'w+') as f:
-            self.saveV(v,prob,f,T, np.arange(N),stations)
+            self.saveV(v,prob,f,T, np.arange(N),stations,resDir =resDir)
         if isPlot:
             '''
             plt.close()
@@ -1663,10 +1696,12 @@ def corrSac(d,sac0,sac1,name0='',name1='',quakeName='',az=np.array([0,0]),\
     corr.quakeName=quakeName
     return corr
 
+iasp91 = taup(phase_list=['S','s'])
 def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
-    removeP=False,isLoadFv=False,fvD={},quakeName=''):
+    removeP=False,isLoadFv=False,fvD={},quakeName='',isByQuake=False,\
+    specN = 20,specThreshold=0.85):
     if removeP:
         print('removeP')
     corrL = []
@@ -1682,6 +1717,10 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
         SNR[i] = np.abs(sacsL[i][0].data[pos])/sacsL[i][0].data[:int(pos/4)].std()
         '''
         tStart = distL[i]/5
+        time = iasp91(sacsL[i][0].stats['sac']['evdp'],\
+            sacsL[i][0].stats['sac']['gcarc'])
+        #if time>5:
+        #    tStart = time-10
         t0 = max(1,tStart)
         dt0 = t0 - sacsL[i][0].stats['sac']['b']
         i0 = max(0,int(dt0/sacsL[i][0].stats['sac']['delta']))
@@ -1722,15 +1761,22 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                 continue
             #print(sac0,sac1,sac0.stats['sac']['az'],sac1.stats['sac']['az'])
             az   = np.array([sac0.stats['sac']['az'],sac1.stats['sac']['az']])
-            if not (isLoadFv and len(quakeName)>0):
-                if np.abs((az[0]-az[1])%360)>10:
+            baz0 =  sac0.stats['sac']['baz']
+            az01 = DistAz(sac0.stats['sac']['stla'],sac0.stats['sac']['stlo'],\
+                sac1.stats['sac']['stla'],sac1.stats['sac']['stlo']).getAz()
+
+            if not (isLoadFv and isByQuake):
+                if np.abs((az[0]-az[1]+10)%360)>20:
                     continue
+                if np.abs((baz0-az01+10)%360)>20:
+                    continue
+
 
             dis  = np.array([sac0.stats['sac']['dist'],sac1.stats['sac']['dist']])
             
             if dis.min()<minDist:
                 continue
-            if np.abs(dis[0]-dis[1])<minDDist:
+            if np.abs(dis[0]-dis[1])<minDDist: 
                 continue
             if dis.max()>maxDist:
                 continue
@@ -1744,7 +1790,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                 '_'+sac1.stats['network']+'.'+sac1.stats['station']
                 modelFile1 = sac1.stats['network']+'.'+sac1.stats['station']+\
                 '_'+sac0.stats['network']+'.'+sac0.stats['station']
-                if quakeName!='':
+                if isByQuake:
                    modelFile0=quakeName+'_'+modelFile0 
                    modelFile1=quakeName+'_'+modelFile1 
                 if modelFile0  in fvD:
@@ -1753,7 +1799,11 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                     modelFile = modelFile1
                 if modelFile0 not  in fvD and modelFile1 not in fvD:
                     continue
-            corrL.append(corrSac(d,sac0,sac1,name0,name1,quakeName,az,dura,M,dis,dep,modelFile,srcSac,isCut=isCut))
+            corr = corrSac(d,sac0,sac1,name0,name1,quakeName,az,dura,M,dis,dep,modelFile,srcSac,isCut=isCut)
+            if corr.compareSpec(N=specN)>specThreshold:
+                corrL.append(corr)
+            else:
+                print(corr.compareSpec(N=specN))
     return corrL        
 
 

@@ -221,9 +221,12 @@ class StationList(list):
         if isinstance(argv[0],str):
             self.read(argv[0])
     def __add__(self,self1):
+        selfNew = Station()
+        for station in self:
+            selfNew.append(station)
         for station in self1:
-            self.append(station)
-        return self
+            selfNew.append(station)
+        return selfNew
     def read(self,fileName):
         self.header = []
         with open(fileName,'r') as staFile:
@@ -295,7 +298,8 @@ class StationList(list):
             return station
         return None
     def Find(self,netSta, spl='.'):
-        net, sta = netSta.split(spl)
+        netSta = netSta.split('/')[-1]
+        net, sta = netSta.split(spl)[:2]
         return self.find(sta,net)
 
 
@@ -558,6 +562,9 @@ class Quake(Dist):
                                 delta= sacsL[-1][i].stats['sac']['delta']
                                 timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
                                 plt.plot(timeL,data/data.std(),'r',linewidth=0.5)
+                    for sac in sacsL[-1]:
+                        sac.detrend()
+                        sac.data -= sac.data.mean()
                     if para['freq'][0] > 0:
                         for sac in sacsL[-1]:
                             if para['filterName']=='bandpass':
@@ -928,3 +935,38 @@ def sacFromO(sac):
     sac=adjust(sac,kzTime=kzTime.timestamp)
 
     return sac
+
+from obspy.taup import TauPyModel
+from scipy import interpolate
+iasp91 = TauPyModel(model="iasp91")
+
+class taup:
+    def __init__(self,quickFile='iasp91_time',phase_list=['P','p'], recal=False):
+        self.dep = np.arange(0,1500,25)
+        self.dist= np.arange(0.1,180,2)
+        quickFileNew = quickFile
+        for phase in phase_list:
+                quickFileNew += phase
+        if not os.path.exists(quickFileNew) or recal:
+            self.genFile(quickFileNew,phase_list)
+        self.M = np.loadtxt(quickFileNew)
+        self.interpolate = interpolate.interp2d(self.dep,self.dist,self.M,\
+            kind='linear',bounds_error=False,fill_value=1e-8)
+    def genFile(self,quickFile='iasp91_timeP',phase_list=['P','p'] ):
+        M = np.zeros([len(self.dist),len(self.dep)])
+        time=0
+        for i  in range(len(self.dep)):
+            print(i)
+            for j in range(len(self.dist)) :
+                arrs=iasp91.get_travel_times(source_depth_in_km=self.dep[i],\
+                    distance_in_degree=self.dist[j],\
+                    phase_list=phase_list)
+                if len(arrs)>0:
+                    time = arrs[0].time
+                else:
+                    print(self.dep[i],self.dist[j],time)
+                M[j,i] = time
+                
+        np.savetxt(quickFile,M)
+    def __call__(self,dep,dist):
+        return self.interpolate(dep,dist)

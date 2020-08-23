@@ -375,7 +375,9 @@ for quake in quakes[:]:
         isSkip=True)
 '''
 
-para={'freq'      :[-1],'filterName':'highpass'}
+para={'freq'      :[1/300],'filterName':'highpass'}
+para={'freq'      :[1/200,1/6],'filterName':'bandpass'}
+para={'freq'      :[-1,-1],'filterName':'bandpass'}
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
@@ -383,7 +385,7 @@ config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.05,\
         fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=600,maxDist=10000,minDDist=400,\
+        minDist=600,maxDist=10000,minDDist=300,\
         maxDDist=3000,para=para,isFromO=True,removeP=True)
 
 
@@ -409,28 +411,31 @@ corrLQuakePTestCEA = d.corrL(config.quakeCorr(quakesCEA[-400:],stationsCEA,\
     fvD=fvDAvarage,isByQuake=False))
 
 
-corrLQuakePNE = d.corrL(config.quakeCorr(quakesNE[:1000],stationsNE,\
+corrLQuakePNE = d.corrL(config.quakeCorr(quakesNE[:-100],stationsNE,\
     byRecord=False,remove_resp=True,minSNR=8,isLoadFv=True,\
-    fvD=fvDAvarage,isByQuake=False,para={'freq':[-1,-1],\
-        'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
+    fvD=fvDAvarage,isByQuake=False,para={\
+    'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
         'output':'VEL'},))
-corrLQuakePTestNE = d.corrL(config.quakeCorr(quakesNE[1000:],stationsNE,\
+corrLQuakePTestNE = d.corrL(config.quakeCorr(quakesNE[-100:],stationsNE,\
     byRecord=False,remove_resp=True,minSNR=8,isLoadFv=True,\
-    fvD=fvDAvarage,isByQuake=False,para={'freq':[-1,-1],\
+    fvD=fvDAvarage,isByQuake=False,para={\
         'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
         'output':'VEL'}))
 
 corrLQuakeP     =  d.corrL(corrLQuakePCEA+corrLQuakePNE)
 corrLQuakePTest =  d.corrL(corrLQuakePTestCEA+corrLQuakePTestNE)
-corrLQuakeP.shuffle()
+random.shuffle(corrLQuakeP)
+random.shuffle(corrLQuakePTest)
 tTrain = (10**np.arange(0,1.000001,1/29))*10
 corrLQuakeP.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True)
 corrLQuakePTest.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True)
-modelP = fcn.model(channelList=[0,2,3])
+#modelP = fcn.model(channelList=[0,2,3])
 fcn.trainAndTest(modelP,corrLQuakeP,corrLQuakePTest,outputDir='predict/CEA_P_',\
-    sigmaL=[4,3,2.5,2],tTrain=tTrain)
+    sigmaL=[1.5],tTrain=tTrain)
+corrLQuakePTest.getAndSave(modelP,'predict/CEA_P_',stationsCEA+stationsNE\
+    ,isPlot=True,isLimit=False)
 '''
 handle some preparation
 respDirs = ['resp/RESP/','resp/RESP_old']
@@ -519,6 +524,24 @@ sta0 sta1 period
 增加地震数量？
 可训练而不可做要求？
 phaseLCEAV1_more 后255个无地震
+时候需要滤波？
+预处理操作
+
+***寻找大周期误差的来源（与标注数据的来源有关?）
+
+重新对内蒙台站进行去仪器响应？
+是否应该加入噪声的频散曲线提取？
+
+找到原始的手挑数据，自己筛选
+
+在发表正式版的时候，应该注意尽量精简
+让读者自己提供cut好的文件
+是否需要考虑噪音的自动提取
+但看起来似乎不太需要，因为噪音对的数目本来就少
+和自动拾取结果比较？
+扩大拾取频率范围
+频谱相似要求？
+
 '''
 
 quakes   = seism.QuakeL('phaseLNE')
@@ -531,8 +554,8 @@ para={\
 }
 stations.getSensorDas()
 stations.getInventory()
-#quakes.cutSac(stations,bTime=-10,eTime =4096,\
-#    para=para,byRecord=False,isSkip=False)
+quakes.cutSac(stations,bTime=-10,eTime =4096,\
+    para=para,byRecord=False,isSkip=True)
 for quake in quakes[:]:
     print(quake)
     a=quake.getSacFiles(stations,isRead=True,remove_resp=True,\
@@ -563,3 +586,19 @@ self.dtype = self.getDtype(maxCount)
         self.x0 = x1.astype(np.float32)
         self.quakeName = quakeName
         '''
+reload(d)
+config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
+        distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
+        layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
+        noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
+        isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
+        T=T,threshold=0.02,expnt=12,dk=0.05,\
+        fok='/k',order=0,minSNR=10,isCut=False,\
+        minDist=600,maxDist=10000,minDDist=300,\
+        maxDDist=3000,para=para,isFromO=True,removeP=True)
+corrLQuakePCEA = d.corrL(config.quakeCorr(quakesCEA[:100],stationsCEA,\
+    byRecord=False,remove_resp=False,minSNR=8,isLoadFv=True,\
+    fvD=fvDAvarage,isByQuake=False))
+cspec = []
+for corr in corrLQuakePCEA:
+    cspec.append(corr.compareSpec(N=40))
