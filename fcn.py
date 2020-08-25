@@ -111,6 +111,60 @@ def inAndOutFuncNew(config):
     outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),padding='same',activation='sigmoid',name='dconv_out')(last)
     return inputs,outputs
 
+def inAndOutFuncNewV2(config):
+    inputs  = Input(config.inputSize)
+    depth   =  len(config.featureL)
+    convL   = [None for i in range(depth+1)]
+    dConvL  = [None for i in range(depth+1)]
+    last    = inputs
+    for i in range(depth):
+        if i <4:
+            name = 'conv'
+        else:
+            name = 'CONV'
+        layerStr='_%d_'%i
+        '''
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',activation = config.activationL[i],\
+            name=name+layerStr+'0',kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+        '''
+        '''
+        if i in config.dropOutL:
+            ii   = config.dropOutL.index(i)
+            last =  Dropout(config.dropOutRateL[ii])(last)
+        '''
+        
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',activation = config.activationL[i],\
+            name=name+layerStr+'0',kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+        convL[i] =last
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',activation = config.activationL[i],\
+            name=name+layerStr+'1',kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+        last     = config.poolL[i](pool_size=config.strideL[i],\
+            strides=config.strideL[i],padding='same')(last)
+    convL[depth] =last
+    for i in range(depth-1,-1,-1):
+        if i <3:
+            name = 'dconv'
+        else:
+            name = 'DCONV'
+        
+        for j in range(i,-1,-1):
+            layerStr='_%d_%d'%(i,j)
+            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
+            strides=config.strideL[j],padding='same',activation=config.activationL[j],\
+            name=name+layerStr+'0',kernel_initializer=config.initializerL[j],\
+            bias_initializer=config.bias_initializerL[j])(convL[j+1])
+            convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
+        
+    outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),\
+        padding='same',activation='sigmoid',name='dconv_out')(convL[0])
+    return inputs,outputs
+
 
 class fcnConfig:
     def __init__(self):
@@ -124,12 +178,16 @@ class fcnConfig:
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
         self.lossFunc   = lossFuncSoft
         '''
-        self.inputSize  = [4096,1,4]
-        self.outputSize = [4096,1,30]
-        self.featureL   = [min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
-        self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),\
+        self.inputSize  = [4096*3,1,4]
+        self.outputSize = [4096*3,1,30]
+        self.featureL   = [min(2**(i+1)+20,80) for i in range(7)]
+        self.featureL   = [30,40,60,60,80,60,40]
+        self.featureL   = [15,20,20,25,25,40,60]
+        self.featureL   = [40,40,40,60,80,100,100]
+        #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
+        self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(3,1),\
         (4,1),(2,1),(2,1),(2,1)]
-        self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),\
+        self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(3,1),\
         (8,1),(4,1),(4,1),(4,1)]
         self.initializerL =['truncated_normal' for i in range(10)]
         self.bias_initializerL=['random_normal' for i in range(10)]
@@ -139,12 +197,15 @@ class fcnConfig:
         self.dropOutRateL= []#[0.2,0.2,0.2]
         self.activationL= ['relu','relu','relu','relu','relu',\
         'relu','relu','relu','relu','relu','relu']
-        self.activationL= ['relu','relu']+['swish' for i in range(3)]+['relu']
+        self.activationL= ['relu','relu']+['swish' for i in range(4)]+['relu']
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
         AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
         MaxPooling2D,AveragePooling2D,MaxPooling2D]
+        self.poolL      = [MaxPooling2D,AveragePooling2D,MaxPooling2D,\
+        AveragePooling2D,MaxPooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
+        MaxPooling2D,AveragePooling2D,MaxPooling2D]
         self.lossFunc   = lossFuncSoft(w=10)#10
-        self.inAndOutFunc = inAndOutFuncNew
+        self.inAndOutFunc = inAndOutFuncNewV2
     def inAndOut(self):
         return self.inAndOutFunc(self)
 
@@ -193,8 +254,10 @@ class model(Model):
             x[:,:,:,:2]/=x[:,:,:,:2].std(axis=(1,2,3),keepdims=True)+1e-12
             x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
         '''
+        timeN0 = x.shape[1]
+        timeN  = (x!=0).sum(axis=1,keepdims=True)
         if x.shape[-1]==4:
-            x/=x.std(axis=(1,2),keepdims=True)+1e-12
+            x/=(x.std(axis=(1,2),keepdims=True)+1e-12)*(timeN0/timeN)**0.5
             #x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
         if x.shape[-1]==1:
             x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-19
@@ -213,13 +276,13 @@ class model(Model):
             t = ''
         XYT = xyt(x,y,t)
         self.trainByXYT(XYT,**kwarg)
-    def trainByXYT(self,XYT,N=2000,perN=200,batchSize=None,xTest='',yTest='',k0 = -1,t=''):
+    def trainByXYT(self,XYT,N=2000,perN=200,batchSize=None,xTest='',yTest='',k0 = 1e-3,t=''):
         if k0>1:
             K.set_value(self.optimizer.lr, k0)
         indexL = range(len(XYT))
         #print(indexL)
         lossMin =100
-        count0  = 10
+        count0  = 5
         count   = count0
         w0 = self.get_weights()
         #print(self.metrics)
@@ -228,7 +291,7 @@ class model(Model):
             x, y , t0L = XYT(iL)
             #print(XYT.iL)
             self.fit(x ,y,batchSize=batchSize)
-            if i%3==0:
+            if i%10==0:
                 if len(xTest)>0:
                     loss    = self.evaluate(self.inx(xTest),yTest)
                     if loss >= lossMin:
@@ -249,7 +312,7 @@ class model(Model):
                         XYT.timeDisKwarg['sigma'],'w: ',self.config.lossFunc.w)
             if i%5==0:
                 print('learning rate: ',self.optimizer.lr)
-                K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.9)
+                K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.95)
             if i>10 and i%5==0:
                 perN += int(perN*0.05)
                 perN = min(1000, perN)
@@ -328,7 +391,7 @@ class model(Model):
             if len(time0L)>0:
                 timeL+=time0L[i]
             xlim=[timeL[0],timeL[-1]]
-            xlimNew=[0,2000]
+            xlimNew=[0,500]
             #xlim=xlimNew
             tmpy0=y0[i,:,0,:]
             pos0  =tmpy0.argmax(axis=0)
@@ -408,7 +471,7 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    w0 = 8#8#5#10##model.config.lossFunc.w
+    w0 = 8#8*3#8#5#10##model.config.lossFunc.w
     testCount = len(corrLTest)
     showCount = int(len(corrLTest)*2/4)
     showD     = int(showCount/30)

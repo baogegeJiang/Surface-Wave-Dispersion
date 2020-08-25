@@ -176,7 +176,13 @@ class filePath:
                 file='%s/%s.%s.resp'%(respDir,net,sensorName)
             if nameMode in ['YP','CEA']:
                 file = sensorName+comp
-            self.InventoryD[sensorName+comp] = read_inventory(file)
+            if '*' not in file and '?' not in file:
+                self.InventoryD[sensorName+comp] = read_inventory(file)
+            else:
+                fileL = glob(file)
+                self.InventoryD[sensorName+comp] = read_inventory(fileL[0])
+                for fileTmp in fileL[1:]:
+                    self.InventoryD[sensorName+comp] += read_inventory(fileTmp)
         if dasName+comp not in self.InventoryD:
             file = '%s/%s.%s.resp'%(respDir,net,dasName)
             self.InventoryD[dasName+comp]=\

@@ -221,7 +221,7 @@ class StationList(list):
         if isinstance(argv[0],str):
             self.read(argv[0])
     def __add__(self,self1):
-        selfNew = Station()
+        selfNew = StationList([])
         for station in self:
             selfNew.append(station)
         for station in self1:
@@ -408,6 +408,8 @@ class Quake(Dist):
                 data = mergeSacByName(sacs, **para)
                 if isinstance(data,NoneType):
                     continue
+                data.data -= data.data.mean()
+                data.detrend()
                 #print(data)
                 if data.stats.starttime<=time0 and data.stats.endtime >= time1:
                     data=data.slice(starttime=UTCDateTime(time0), \
@@ -461,7 +463,7 @@ class Quake(Dist):
                 if sensorName=='UNKNOWN' or sensorName==''  \
                 or dasName=='UNKNOWN' or dasName=='':
                     continue
-                if station['net']=='YP':
+                if station['net']=='YP' or station['nameMode'] == 'CEA':
                     rigthResp = True
                     for channelIndex in range(3):
                         #channelIndexO = defaultStrL.index(strL[channelIndex])
@@ -533,17 +535,17 @@ class Quake(Dist):
                             sac = sacsL[-1][channelIndex]
                             channelIndexO = defaultStrL.index(strL[channelIndex])
                             sensor = station.sensor[channelIndexO]
-                            das    = station.das[channelIndexO]
+                            defaultStatsas    = station.das[channelIndexO]
                             originStats={}
                             for key in station.defaultStats:
                                 originStats[key] = sac.stats[key]
                             if station['net'] == 'hima':
                                 sac.stats.update(station.defaultStats)
                             #print(sac.stats)
-                            if station['net'] == 'YP':
+                            if station['net'] == 'YP' or station['nameMode'] == 'CEA':
                                 sac.stats.update({'channel': station['compBase']+strL[channelIndex]})
                                 sac.stats.update({'knetwk': station['net'],'network': station['net']})
-                            #print(sac.stats,sensor)
+                            #print(sac.stats,sensor[0][0][0],sensor[1][0][0])
                             if 'pre_filt' in para:
                                 sac.remove_response(inventory=sensor,\
                                     output=para['output'],water_level=60,\
@@ -552,8 +554,9 @@ class Quake(Dist):
                                 sac.remove_response(inventory=sensor,\
                                     output=para['output'],water_level=60)                           
                             sac.stats.update(station.defaultStats)
-                            sac.remove_response(inventory=das,\
-                            output="VEL",water_level=60)
+                            if station['nameMode'] != 'CEA':
+                                sac.remove_response(inventory=das,\
+                                output="VEL",water_level=60)
                             sac.stats.update(originStats)
                         if isPlot:
                             for i in range(3):

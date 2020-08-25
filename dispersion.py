@@ -203,7 +203,7 @@ class config:
         print(tmpName)
         return fv(tmpName,'file')
     def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1,
-        isLoadFv=False,fvD={},isByQuake=False,quakesRef=[],modelFile='models/prem'):
+        isLoadFv=False,fvD={},isByQuake=False,quakesRef=[]):
         corrL = []
         disp = self.getDispL()[0]
         if minSNR <0:
@@ -1701,7 +1701,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
     removeP=False,isLoadFv=False,fvD={},quakeName='',isByQuake=False,\
-    specN = 20,specThreshold=0.85):
+    specN = 20,specThreshold=0):
     if removeP:
         print('removeP')
     corrL = []
@@ -1710,20 +1710,32 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     SNR = np.zeros(N)
     for i in range(N):
         distL[i] = sacsL[i][0].stats['sac']['dist']
+        if np.random.rand()<0.01:
+            print(sacsL[i][0].stats)
         '''
         pos = np.abs(sacsL[i][0].data).argmax()
         dTime = pos*sacsL[i][0].stats['sac']['delta']+sacsL[i][0].stats['sac']['b']
         #print(pos,dTime,distL[i])
         SNR[i] = np.abs(sacsL[i][0].data[pos])/sacsL[i][0].data[:int(pos/4)].std()
         '''
-        tStart = distL[i]/5
-        time = iasp91(sacsL[i][0].stats['sac']['evdp'],\
-            sacsL[i][0].stats['sac']['gcarc'])
+        
+        #time = iasp91(sacsL[i][0].stats['sac']['evdp'],\
+        #    sacsL[i][0].stats['sac']['gcarc'])
         #if time>5:
         #    tStart = time-10
+        to = 0
+        dto = to - sacsL[i][0].stats['sac']['b']
+        io = max(0,int(dto/sacsL[i][0].stats['sac']['delta']))
+
+        te = distL[i]/1.8*1.5
+        dte = te - sacsL[i][0].stats['sac']['b']
+        ie = min(sacsL[i][0].data.size,int(dte/sacsL[i][0].stats['sac']['delta']))
+
+        tStart = distL[i]/5
         t0 = max(1,tStart)
         dt0 = t0 - sacsL[i][0].stats['sac']['b']
         i0 = max(0,int(dt0/sacsL[i][0].stats['sac']['delta']))
+        
         tEnd = distL[i]/1.8
         t1 = max(1,tEnd)
         dt1 = t1 - sacsL[i][0].stats['sac']['b']
@@ -1734,14 +1746,16 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
         if sacsL[i][0].data[i0:i1].std()==0:
             SNR[i]=-1
             continue
-        beafMax = max(np.abs(sacsL[i][0].data[:i0]).max(),\
-            np.abs(sacsL[i][0].data[i1:]).max())
+        beafMax = max(np.abs(sacsL[i][0].data[io:i0]).max(),\
+            np.abs(sacsL[i][0].data[i1:ie]).max())
         inMax = np.abs(sacsL[i][0].data[i0:i1]).max()
-        if inMax < beafMax:
+        if inMax < beafMax*0.5:
             SNR[i]=-1
             continue
-        SNR[i] = np.max(np.abs(sacsL[i][0].data[i0:i1]))/sacsL[i][0].data[:int(i0/5)].std()
+        SNR[i] = np.max(np.abs(sacsL[i][0].data[i0:i1]))\
+        /sacsL[i][0].data[io:io+int((i0-io)/5)].std()
         if removeP:
+            sacsL[i][0].data -= sacsL[i][0].data.mean()
             sacsL[i][0].data[:i0]*=0
             sacsL[i][0].data[i1:]*=0
     #print(SNR)
