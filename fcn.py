@@ -39,15 +39,39 @@ def hitRate(yin,yout,maxD=10):
     hitCount= K.sum(K.sign(-d+maxD))
     return hitCount/count
 
-def hitRateNp(yin,yout,maxD=6,K=np):
-    yinPos  = yin.argmax( axis=1)
-    youtPos = yout.argmax(axis=1)
+def rateNp(yinPos,youtPos,yinMax,youtMax,maxD=0.03,K=np,minP=0.5):
+    threshold = yinPos*maxD
+    d       = K.abs(yinPos - youtPos)
+    count0   = K.sum(yinMax>0.5)
+    count1   = K.sum((yinMax>0.5)*(youtMax>minP))
+    hitCount= K.sum((d<threshold)*(yinMax>0.5)*(youtMax>minP))
+    return hitCount/count0, hitCount/count1
+'''
+def rightRateNp(yinPos,youtPos,yinMax,youtMax,maxD=0.03,K=np, minP=0.5):
+    threshold = yinPos*maxD
     d       = K.abs(yinPos - youtPos)
     #print(d)
-    print(d.mean(axis=(0,1)))
-    count   = K.sum(yin.max(axis=1)>0.5)
-    hitCount= K.sum((d<maxD)*(yin.max(axis=1)>0.5))
+    #print(d.mean(axis=(0,1)))
+    count   = K.sum((yinMax>0.5)*(youtMax>minP))
+    hitCount= K.sum((d<threshold)*(yinMax>0.5)*(youtMax>minP))
     return hitCount/count
+'''
+
+def printRes(yin, yout):
+    #       0.01  0.8  0.36600 0.9996350
+    strL   = 'maxD  minP hitRate rightRate'
+    strfmt = '\n%4.2f %3.1f %7.5f %7.5f'
+    yinPos  = yin.argmax( axis=1)
+    youtPos = yout.argmax(axis=1)
+    yinMax = yin.max(axis=1)
+    youtMax = yout.max(axis=1)
+    for maxD in [0.03,0.02,0.01]:
+        for minP in [0.5,0.7,0.8]:
+            hitRate,rightRate = rateNp(\
+                yinPos,youtPos,yinMax,youtMax,maxD=maxD,minP=minP)
+            strL += strfmt%(maxD, minP, hitRate, rightRate)
+    print(strL)
+    return strL
 
 def inAndOutFunc(config):
     inputs  = Input(config.inputSize)
@@ -179,11 +203,11 @@ class fcnConfig:
         self.lossFunc   = lossFuncSoft
         '''
         self.inputSize  = [4096*3,1,4]
-        self.outputSize = [4096*3,1,30]
+        self.outputSize = [4096*3,1,60]
         self.featureL   = [min(2**(i+1)+20,80) for i in range(7)]
         self.featureL   = [30,40,60,60,80,60,40]
         self.featureL   = [15,20,20,25,25,40,60]
-        self.featureL   = [40,40,40,60,80,100,100]
+        self.featureL   = [60,60,80,80,80,120,120]
         #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
         self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(3,1),\
         (4,1),(2,1),(2,1),(2,1)]
@@ -307,9 +331,10 @@ class model(Model):
                     if count ==0:
                         break
                     #print(self.metrics)
-                    metrics = self.Metrics(yTest,self.predict(xTest))
-                    print('test loss: ',loss,' metrics: ',metrics,'sigma: ',\
-                        XYT.timeDisKwarg['sigma'],'w: ',self.config.lossFunc.w)
+                    yout = self.predict(xTest)
+                    print('test loss: ',loss,'sigma: ',XYT.timeDisKwarg['sigma'],\
+                                'w: ',self.config.lossFunc.w)
+                    printRes(yTest, yout)
             if i%5==0:
                 print('learning rate: ',self.optimizer.lr)
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.95)
@@ -471,7 +496,7 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
     '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    w0 = 8#8*3#8#5#10##model.config.lossFunc.w
+    w0 = 2#4#8#8*3#8#5#10##model.config.lossFunc.w
     testCount = len(corrLTest)
     showCount = int(len(corrLTest)*2/4)
     showD     = int(showCount/30)
@@ -486,8 +511,9 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
         
         
     xTest, yTest, tTest =corrLTest(np.arange(showCount))
-    corrLTest.plotPickErro(model.predict(xTest),tTrain,\
-    fileName=outputDir+'erro.jpg')
+    yout=model.predict(xTest)
+    printRes(yTest, yout)
+    corrLTest.plotPickErro(yout,tTrain,fileName=outputDir+'erro.jpg')
     iL=np.arange(0,showCount,showD)
     model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
     T=tTrain,outputDir=outputDir)

@@ -378,7 +378,7 @@ for quake in quakes[:]:
 para={'freq'      :[1/300],'filterName':'highpass'}
 para={'freq'      :[1/300,1/6],'filterName':'bandpass'}
 #para={'freq'      :[-1,-1],'filterName':'bandpass'}
-#para={'freq'      :[1/5],'filterName':'lowpass'}
+para={'freq'      :[1/6],'filterName':'lowpass'}
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
@@ -395,7 +395,7 @@ stationsCEA = seism.StationList('stations/CEA.sta_sel')
 stationsNE = seism.StationList('stations/NEsta_all.locSensorDas')
 stationsNE.getSensorDas()
 stationsNE.getInventory()
-
+stationsCEA.getInventory()
 fvDAvarageCEA = config.loadNEFV(stationsCEA,fvDir='models/Curves')
 fvDAvarageNE = config.loadNEFV(stationsNE)
 fvDAvarage ={}
@@ -403,22 +403,24 @@ fvDAvarage.update(fvDAvarageCEA)
 fvDAvarage.update(fvDAvarageNE)
 
 corrLQuakePCEA = d.corrL(config.quakeCorr(quakes,stationsCEA,\
-    byRecord=False,remove_resp=False,minSNR=10,isLoadFv=True,\
-    fvD=fvDAvarage,isByQuake=False))
+    byRecord=False,remove_resp=False,minSNR=12,isLoadFv=True,\
+    fvD=fvDAvarage,isByQuake=False,para={\
+    'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
+        'output':'VEL','freq':[1/250, 1/6],'filterName':'bandpass'}))
 
 
 corrLQuakePNE = d.corrL(config.quakeCorr(quakes,stationsNE,\
-    byRecord=False,remove_resp=True,minSNR=10,isLoadFv=True,\
+    byRecord=False,remove_resp=True,minSNR=12,isLoadFv=True,\
     fvD=fvDAvarage,isByQuake=False,para={\
     'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
-        'output':'VEL'},))
+        'output':'VEL','freq':[1/6],'filterName':'lowpass'},))
 
 corrLQuakeP     =  d.corrL(corrLQuakePCEA[:-4000]\
     +corrLQuakePNE[:-4000])
 corrLQuakePTest =  d.corrL(corrLQuakePCEA[-4000:]+corrLQuakePNE[-4000:])
 random.shuffle(corrLQuakeP)
 random.shuffle(corrLQuakePTest)
-tTrain = (10**np.arange(0,1.000001,1/29))*10
+tTrain = (10**np.arange(0,1.000001,1/59))*10
 corrLQuakeP.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096*3,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True)
 corrLQuakePTest.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096*3,\
@@ -533,7 +535,8 @@ phaseLCEAV1_more 后255个无地震
 和自动拾取结果比较？
 扩大拾取频率范围
 频谱相似要求？
-
+是否需要去除仪器响应？
+研究初始化问题，如何保证收敛
 '''
 '''
 stations = seism.StationList('stations/CEA.sta_sel')

@@ -1305,20 +1305,27 @@ class corr:
             #print(aF,aF<rThreshold)
             timeDis[:,aF<rThreshold]=timeDis[:,aF<rThreshold]*0
         return timeDis,t0
-    def compareSpec(self,N=20):
+    def compareSpec(self,N=40):
         spec0 = self.toFew(np.abs(np.fft.fft(self.x0)),N)
         spec1 = self.toFew(np.abs(np.fft.fft(self.x1)),N)
+        midN = max(1,int(0.03*N))
+        spec0Low  = spec0[:midN].max()
+        spec1Low  = spec1[:midN].max()
+        spec0High = spec0[midN:-midN].max()
+        spec1High = spec1[midN:-midN].max()
+        if spec0Low>spec0High*0.5 or spec1Low>spec1High*0.5:
+            return 0
         return (spec0*spec1).sum()
     def toFew(self,spec, N=20):
-        spec[:5]*=0
-        spec[-5:]*=0
+        spec[:1]*=0
+        spec[-1:]*=0
         N0 = len(spec)
         d  = int(N0/(N-1))
         i0 = np.arange(0,N0-d,d)
         i1 = np.arange(d,N0,d)
         specNew = np.zeros(len(i0))
         for i in range(len(i0)):
-            specNew[i] = spec[i0[i]:i1[i]].sum()
+            specNew[i] = spec[i0[i]:i1[i]].mean()
         specNew  /= (specNew**2).sum()**0.5
         return specNew
     def compareInOut(self,yin,yout,t0):
@@ -1701,7 +1708,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
     removeP=False,isLoadFv=False,fvD={},quakeName='',isByQuake=False,\
-    specN = 20,specThreshold=0):
+    specN = 40,specThreshold=0.8):
     if removeP:
         print('removeP')
     corrL = []
@@ -1731,8 +1738,11 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
         dte = te - sacsL[i][0].stats['sac']['b']
         ie = min(sacsL[i][0].data.size,int(dte/sacsL[i][0].stats['sac']['delta']))
 
-        tStart = distL[i]/5
-        t0 = max(1,tStart)
+        tStart = iasp91(sacsL[i][0].stats['sac']['evdp'],\
+        sacsL[i][0].stats['sac']['gcarc'])*1.1#distL[i]/5
+        if tStart >1e5 or tStart <5:
+            tStart = distL[i]/5
+        t0 = min(distL[i]/4.2,tStart)
         dt0 = t0 - sacsL[i][0].stats['sac']['b']
         i0 = max(0,int(dt0/sacsL[i][0].stats['sac']['delta']))
         

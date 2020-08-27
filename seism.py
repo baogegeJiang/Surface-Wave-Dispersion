@@ -477,6 +477,9 @@ class Quake(Dist):
                     if rigthResp == False:
                         print('#### no Such Resp')
                         continue
+                if self['time']<UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA'\
+                    and len(station.sensor[0])<2:
+                    continue
             if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
                 continue
             if staIndex in staIndexs:
@@ -535,7 +538,11 @@ class Quake(Dist):
                             sac = sacsL[-1][channelIndex]
                             channelIndexO = defaultStrL.index(strL[channelIndex])
                             sensor = station.sensor[channelIndexO]
-                            defaultStatsas    = station.das[channelIndexO]
+                            if self['time'] >= UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA':
+                                sensor = station.sensor[channelIndexO][:1]
+                            if self['time'] < UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA':
+                                sensor = station.sensor[channelIndexO][1:]
+                            das    = station.das[channelIndexO]
                             originStats={}
                             for key in station.defaultStats:
                                 originStats[key] = sac.stats[key]
@@ -556,7 +563,7 @@ class Quake(Dist):
                             sac.stats.update(station.defaultStats)
                             if station['nameMode'] != 'CEA':
                                 sac.remove_response(inventory=das,\
-                                output="VEL",water_level=60)
+                                    output="VEL",water_level=60)
                             sac.stats.update(originStats)
                         if isPlot:
                             for i in range(3):
