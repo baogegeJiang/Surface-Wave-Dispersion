@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
-from mathFunc import getDetec,xcorrSimple,xcorrComplex,flat,validL,randomSource
+from mathFunc import getDetec,xcorrSimple,xcorrComplex,flat,validL,randomSource,disDegree
 from numba import jit,float32, int64
 from scipy import fftpack,interpolate
 from fk import FK,getSourceSacName,FKL
@@ -15,6 +15,7 @@ from distaz import DistAz
 from glob import glob
 from obspy.taup import TauPyModel
 from seism import taup
+from mathFunc import fitexp
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -1163,8 +1164,8 @@ class corr:
         self.name0 = name0
         self.name1 = name1
         self.srcSac= srcSac
-        self.x0 = x1.astype(np.float32)
-        self.x0 = x1.astype(np.float32)
+        self.x0 = x0.astype(np.float32)
+        self.x1 = x1.astype(np.float32)
         self.quakeName=quakeName
     def output(self):
         return self.xx,self.timeL,self.dDis,self.fs
@@ -1328,14 +1329,17 @@ class corr:
             specNew[i] = spec[i0[i]:i1[i]].mean()
         specNew  /= (specNew**2).sum()**0.5
         return specNew
-    def compareInOut(self,yin,yout,t0):
+    def compareInOut(self,yin,yout,t0,threshold=0.5):
         aIn = yin.argmax(axis=0)
+        aOut = yout.argmax(axis=0)
         posIn   = yin.argmax(axis=0)/self.fs
         posOut  = yout.argmax(axis=0)/self.fs
         dPos    = posOut - posIn
         dPosR   = dPos/(posIn+t0+1e-8)
         dPos[aIn<0.5] = dPos[aIn<0.5]*0-100000
         dPosR[aIn<0.5] = dPosR[aIn<0.5]*0-10000
+        dPos[aOut<threshold] = dPos[aOut<threshold]*0-100000
+        dPosR[aOut<threshold] = dPosR[aOut<threshold]*0-10000
         return dPos, dPosR, dPos*0 + self.dDis
     def getV(self,yout):
         posOut = yout.argmax(axis=0).reshape([-1])
@@ -1352,6 +1356,9 @@ class corrL(list):
         super().__init__()
         if len(argv)>0:
             for tmp in argv[0]:
+                if tmp.xx.std() ==0:
+                    print(tmp.name0,' no data')
+                    continue
                 if 'fvD' in kwargs:
                     fvD = kwargs['fvD']
                     modelName =tmp.modelFile
@@ -1374,7 +1381,7 @@ class corrL(list):
         ori   = list(self)
         np.random.shuffle(ori)
         self = corrL(ori)
-    def plotPickErro(self,yout,T,iL=[],fileName='erro.jpg'):
+    def plotPickErro(self,yout,T,iL=[],fileName='erro.jpg',threshold=0.5):
         plt.close()
         N = yout.shape[0]
         if len(iL) == 0:
@@ -1389,7 +1396,7 @@ class corrL(list):
             tmpYin  = self.y[i,:,0]
             tmpYOut = yout[i,:,0]
             t0      = self.t0L[i]
-            dPos, dPosR,dDis = tmpCorr.compareInOut(tmpYin,tmpYOut,t0)
+            dPos, dPosR,dDis = tmpCorr.compareInOut(tmpYin,tmpYOut,t0,threshold=threshold)
             f = (1/T)
             dPosL[i,:]  = dPos
             dPosRL[i,:] = dPosR
@@ -1407,8 +1414,8 @@ class corrL(list):
         plt.colorbar()
         plt.gca().semilogy()
         plt.gca().invert_yaxis()
-        plt.title(fileName[:-4])
-        plt.savefig(fileName,dpi=300)
+        plt.title(fileName[:-4]+'_%.2f'%threshold)
+        plt.savefig(fileName[:-4]+'_%.2f.jpg'%threshold,dpi=300)
         plt.close()
 
         bins   = np.arange(-50,50,1)/400
@@ -1422,8 +1429,8 @@ class corrL(list):
         plt.colorbar()
         plt.gca().semilogy()
         plt.gca().invert_yaxis()
-        plt.title(fileName[:-4]+'_R')
-        plt.savefig(fileName[:-4]+'_R.jpg',dpi=300)
+        plt.title(fileName[:-4]+'_%.2f_R'%threshold)
+        plt.savefig(fileName[:-4]+'_%.2f_R.jpg'%threshold,dpi=300)
         plt.close()
     def setTimeDis(self,*argv,**kwargs):
         self.timeDisArgv = argv
@@ -1444,9 +1451,10 @@ class corrL(list):
                 print('already done')
                 return None
         self.iL = iL
+        dtype = np.float32
         maxCount0 = maxCount
-        x      = np.zeros([len(iL),maxCount,1,4])
-        y      = np.zeros([len(iL),maxCount,1,len(T)])
+        x      = np.zeros([len(iL),maxCount,1,4],dtype=dtype)
+        y      = np.zeros([len(iL),maxCount,1,len(T)],dtype=dtype)
         t0L    = np.zeros(len(iL))
         dDisL  = np.zeros(len(iL))
         deltaL = np.zeros(len(iL))
@@ -1489,14 +1497,16 @@ class corrL(list):
             dDisL[ii] = self[i].dDis
             deltaL[ii]= self[i].timeL[1]-self[i].timeL[0]
         xStd = x.std(axis=1,keepdims=True)
-        self.x          = x+noiseMul*np.random.rand(*list(x.shape))*xStd
+        self.x          = x 
+        if noiseMul>0 :
+            self.x += noiseMul*(np.random.rand(*list(x.shape)).astype(dtype)-0.5)*xStd
         self.y          = y
         self.randIndexL = randIndexL
         self.t0L        = t0L
         self.dDisL      = dDisL
         self.deltaL     = deltaL
         #print(x[0,1500,0])
-    def getV(self,yout,isSimple=True,D=0.1,isLimit=False):
+    def getV(self,yout,isSimple=True,D=0.15,isLimit=False,isFit = False):
         if isSimple:
             pos = yout.argmax(axis=1)[:,0]
             prob= yout.max(axis=1)[:,0]
@@ -1524,8 +1534,16 @@ class corrL(list):
                     i0 = max(0,int((minT - self.t0L[0])/self.deltaL[i]))
                     i1 = min(yout.shape[1]-1,int((maxT - self.t0L[0])/self.deltaL[i]))
                     pos      = yout[i,i0:i1,0,j].argmax()+i0
-                    time     = self.t0L[i]+pos*self.deltaL[i]
                     prob[i,j]= yout[i,i0:i1,0,j].max()
+                    if prob[i,j]>0.5 and isFit :
+                        try:
+                            posNew = fitexp(yout[i,i0:i1,0,j])+i0.astype(np.float32)
+                        except:
+                            pass
+                        else:
+                            if np.abs(posNew-pos)<0.5:
+                                pos = posNew
+                    time     = self.t0L[i]+pos*self.deltaL[i]
                     v[i,j]   = self.dDisL[i]/time
         return v,prob
     def saveV(self,v,prob,f,T,iL=[],stations=[], minProb= 0.7,resDir ='models/predict/'):
@@ -1607,7 +1625,7 @@ class corrL(list):
 
 
     def getAndSave(self,model,fileName,stations,isPlot=False,isSimple=True,\
-        D=0.2,isLimit=False,resDir ='models/predict/'):
+        D=0.2,isLimit=False,resDir ='models/predict/',isFit = False):
         N = len(self)
         if 'T' in self.timeDisKwarg:
             T = self.timeDisKwarg['T']
@@ -1621,7 +1639,8 @@ class corrL(list):
         for i0 in range(0,N,1000):
             i1 = min(i0+1000,N-1)
             x, y, t= self(np.arange(i0, i1))
-            v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,D=D,isLimit=isLimit)
+            v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,\
+                D=D,isLimit=isLimit,isFit=isFit)
             v0[i0:i1],prob0[i0:i1]=self.getV(y)
         with open(fileName,'w+') as f:
             self.saveV(v,prob,f,T, np.arange(N),stations,resDir =resDir)
@@ -1768,6 +1787,9 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             sacsL[i][0].data -= sacsL[i][0].data.mean()
             sacsL[i][0].data[:i0]*=0
             sacsL[i][0].data[i1:]*=0
+        if sacsL[i][0].data.std()==0:
+            SNR[i]=-1
+
     #print(SNR)
     print((SNR>minSNR).sum(),minSNR,isLoadFv)
     iL = distL.argsort()
@@ -1788,16 +1810,9 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             baz0 =  sac0.stats['sac']['baz']
             az01 = DistAz(sac0.stats['sac']['stla'],sac0.stats['sac']['stlo'],\
                 sac1.stats['sac']['stla'],sac1.stats['sac']['stlo']).getAz()
-
-            if not (isLoadFv and isByQuake):
-                if np.abs((az[0]-az[1]+10)%360)>20:
-                    continue
-                if np.abs((baz0-az01+10)%360)>20:
-                    continue
-
-
+            dis01= DistAz(sac0.stats['sac']['stla'],sac0.stats['sac']['stlo'],\
+                sac1.stats['sac']['stla'],sac1.stats['sac']['stlo']).getDelta()*110.7
             dis  = np.array([sac0.stats['sac']['dist'],sac1.stats['sac']['dist']])
-            
             if dis.min()<minDist:
                 continue
             if np.abs(dis[0]-dis[1])<minDDist: 
@@ -1806,7 +1821,19 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                 continue
             if np.abs(dis[0]-dis[1])>maxDDist:
                 continue
-             
+            minDis = dis.min()
+            if not (isLoadFv and isByQuake):
+                maxD = 150
+                maxTheta = 10
+                if np.random.rand()<0.01:
+                    print(disDegree(minDis,maxD=maxD,maxTheta=maxTheta),\
+                        disDegree(dis01,maxD=maxD,maxTheta=maxTheta))
+                thetaE = max(3,disDegree(minDis,maxD=maxD,maxTheta=maxTheta))#10
+                theta01= max(3,disDegree(dis01,maxD=maxD,maxTheta=maxTheta))#10
+                if np.abs((az[0]-az[1]+thetaE)%360)>2*thetaE:
+                    continue
+                if np.abs((baz0-az01+theta01)%360)>2*theta01:
+                    continue
             #tmp = corrSac(d,sac0,sac1,name0,name1,az,dura,M,dis,dep,modelFile)
             #print(np.imag(tmp.xx))
             if isLoadFv:

@@ -415,19 +415,19 @@ corrLQuakePNE = d.corrL(config.quakeCorr(quakes,stationsNE,\
     'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
         'output':'VEL','freq':[1/6],'filterName':'lowpass'},))
 
-corrLQuakeP     =  d.corrL(corrLQuakePCEA[:-4000]\
-    +corrLQuakePNE[:-4000])
-corrLQuakePTest =  d.corrL(corrLQuakePCEA[-4000:]+corrLQuakePNE[-4000:])
+corrLQuakeP     =  d.corrL(corrLQuakePCEA[:-2000]\
+    +corrLQuakePNE[:-2000])
+corrLQuakePTest =  d.corrL(corrLQuakePCEA[-2000:]+corrLQuakePNE[-2000:])
 random.shuffle(corrLQuakeP)
 random.shuffle(corrLQuakePTest)
-tTrain = (10**np.arange(0,1.000001,1/59))*10
+tTrain = (10**np.arange(0,1.000001,1/49))*10
 corrLQuakeP.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096*3,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True)
 corrLQuakePTest.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096*3,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True)
 modelP = fcn.model(channelList=[0,2,3])
 fcn.trainAndTest(modelP,corrLQuakeP,corrLQuakePTest,outputDir='predict/CEA_P_',\
-    sigmaL=[1.5],tTrain=tTrain)
+    sigmaL=[1.5],tTrain=tTrain,perN=200,count0=3)
 corrLQuakePTest.getAndSave(modelP,'predict/CEA_P_',stationsCEA+stationsNE\
     ,isPlot=True,isLimit=False)
 '''
@@ -537,6 +537,12 @@ phaseLCEAV1_more 后255个无地震
 频谱相似要求？
 是否需要去除仪器响应？
 研究初始化问题，如何保证收敛
+利用姚老师的方法
+看残差大小
+是否可以继续上采样，寻找可能的超分辨率？
+虽然加入了训练系统，但是部分频段仍然未被标注，也可以用于拾取
+如何从predicate 结果中选取有用的
+fit 的范式, 可以提高精度吗
 '''
 '''
 stations = seism.StationList('stations/CEA.sta_sel')
@@ -618,3 +624,19 @@ corrLQuakePCEA = d.corrL(config.quakeCorr(quakesCEA[:100],stationsCEA,\
 cspec = []
 for corr in corrLQuakePCEA:
     cspec.append(corr.compareSpec(N=40))
+
+##
+t = np.arange(500)
+w = 1/20*np.pi*2
+
+x0 = np.sin(w*t)
+x1 = np.sin(w*(t-0.45))
+
+X0 = np.fft.fft(x0)
+X1 = np.fft.fft(x1)
+
+phase = np.imag(X1[25]/X0[25])/w
+
+for corr in corrLQuakeP :
+    if np.isinf(corr.x1).sum()>0 :
+        print(corr.name0)

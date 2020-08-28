@@ -2,6 +2,7 @@ import numpy as np
 from numba import jit,float32, int64
 import scipy.signal  as signal
 from scipy import fftpack
+from scipy.optimize import curve_fit
 nptype=np.float32
 rad2deg=1/np.pi*180
 @jit
@@ -197,3 +198,42 @@ def randomSource(i,duraCount,data):
         data[:duraCount] = np.sin(np.arange(duraCount)/T*2*np.pi+T0)
         data[:duraCount] += (np.random.rand(duraCount)-0.5)*0.1
         data[:duraCount] *= np.random.rand(duraCount)+2
+@jit
+def gaussian(x,A, t0, sigma):
+    return A*np.exp(-(x - t0)**2 / sigma**2)
+@jit
+def fitexp(y):
+    N = len(y)
+    x = np.arange(N)
+    ATS,pcov = curve_fit(gaussian,x,y,p0=[1,N/2,1.5],\
+        bounds=(0.1, [3, N, 8]),maxfev=40)
+    A = ATS[0]
+    t0 = ATS[1]
+    sigma = ATS[2]
+    #print(pcov)
+    return t0
+
+def findPos(y, moreN = 10):
+    yPos  = y.argmax( axis=1).astype(np.float32)
+    yMax = y.max(axis=1)
+    for i in range(y.shape[0]):
+        for j in range(y.shape[-1]):
+            pos0 = int(yPos[i,0,j])
+            max0 = yMax[i,0,j]
+            if max0 > 0.5 and pos0>=moreN and pos0+moreN<y.shape[1] :
+                try:
+                    pos =  fitexp(y[i,pos0-moreN:pos0+moreN,0,j])+pos0-moreN
+                except:
+                    pass
+                else:
+                    if np.abs(pos-pos0)<0.5:
+                        yPos[i,0,j]=pos
+    return yPos, yMax
+
+def disDegree(dis,maxD = 100, maxTheta=20):
+    delta = dis/110.7
+    if delta >90:
+        delta = 90
+    theta0 = maxD/110.7
+    theta = theta0/np.sin(delta/180*np.pi)
+    return min(theta,maxTheta)

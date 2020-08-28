@@ -8,12 +8,16 @@ from matplotlib import pyplot as plt
 from keras.layers import Activation
 from keras.utils.generic_utils import get_custom_objects
 import random
+from mathFunc import findPos
+#默认是float32位的网络
 def swish(inputs):
     return (K.sigmoid(inputs) * inputs)
     
 get_custom_objects().update({'swish': Activation(swish)})
 #传统的方式
 class lossFuncSoft:
+    # 当有标注的时候才计算权重
+    # 这样可以保持结构的一致性
     def __init__(self,w=1):
         self.w=w
     def __call__(self,y0,yout0):
@@ -57,9 +61,10 @@ def rightRateNp(yinPos,youtPos,yinMax,youtMax,maxD=0.03,K=np, minP=0.5):
     return hitCount/count
 '''
 
-def printRes(yin, yout):
+
+def printRes_old(yin, yout):
     #       0.01  0.8  0.36600 0.9996350
-    strL   = 'maxD  minP hitRate rightRate'
+    strL   = 'maxD  minP hitRate rightRate old'
     strfmt = '\n%4.2f %3.1f %7.5f %7.5f'
     yinPos  = yin.argmax( axis=1)
     youtPos = yout.argmax(axis=1)
@@ -70,6 +75,25 @@ def printRes(yin, yout):
             hitRate,rightRate = rateNp(\
                 yinPos,youtPos,yinMax,youtMax,maxD=maxD,minP=minP)
             strL += strfmt%(maxD, minP, hitRate, rightRate)
+    print(strL)
+    return strL
+
+def printRes(yin, yout):
+    #       0.01  0.8  0.36600 0.9996350
+    strL   = 'maxD  minP hitRate rightRate'
+    strfmt = '\n%4.2f %3.1f %7.5f %7.5f'
+    try:
+        yinPos, yinMax = findPos(yin)
+        youtPos, youtMax = findPos(yout) 
+        for maxD in [0.03,0.02,0.01]:
+            for minP in [0.5,0.7,0.8]:
+                hitRate,rightRate = rateNp(\
+                    yinPos,youtPos,yinMax,youtMax,maxD=maxD,minP=minP)
+                strL += strfmt%(maxD, minP, hitRate, rightRate)
+    except:
+        print('cannot find')
+    else:
+        pass
     print(strL)
     return strL
 
@@ -170,6 +194,9 @@ def inAndOutFuncNewV2(config):
             bias_initializer=config.bias_initializerL[i])(last)
         last     = config.poolL[i](pool_size=config.strideL[i],\
             strides=config.strideL[i],padding='same')(last)
+        if i in config.dropOutL:
+            ii   = config.dropOutL.index(i)
+            last =  Dropout(config.dropOutRateL[ii])(last)
     convL[depth] =last
     for i in range(depth-1,-1,-1):
         if i <3:
@@ -183,6 +210,9 @@ def inAndOutFuncNewV2(config):
             strides=config.strideL[j],padding='same',activation=config.activationL[j],\
             name=name+layerStr+'0',kernel_initializer=config.initializerL[j],\
             bias_initializer=config.bias_initializerL[j])(convL[j+1])
+            if j in config.dropOutL:
+                jj   = config.dropOutL.index(j)
+                dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
             convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
         
     outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),\
@@ -202,33 +232,35 @@ class fcnConfig:
         self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
         self.lossFunc   = lossFuncSoft
         '''
-        self.inputSize  = [4096*3,1,4]
-        self.outputSize = [4096*3,1,60]
-        self.featureL   = [min(2**(i+1)+20,80) for i in range(7)]
-        self.featureL   = [30,40,60,60,80,60,40]
-        self.featureL   = [15,20,20,25,25,40,60]
-        self.featureL   = [60,60,80,80,80,120,120]
+        self.inputSize     = [4096*3,1,4]
+        self.outputSize    = [4096*3,1,50]
+        self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]
+        self.featureL      = [30,40,60,60,80,60,40]
+        self.featureL      = [15,20,20,25,25,40,60]
+        self.featureL      = [50,50,75,75,100,100,125]
         #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
-        self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(3,1),\
+        self.strideL       = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(3,1),\
         (4,1),(2,1),(2,1),(2,1)]
-        self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(3,1),\
+        self.kernelL       = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(3,1),\
         (8,1),(4,1),(4,1),(4,1)]
-        self.initializerL =['truncated_normal' for i in range(10)]
+        self.initializerL  = ['truncated_normal' for i in range(10)]
+        self.initializerL  = ['he_normal' for i in range(10)]
         self.bias_initializerL=['random_normal' for i in range(10)]
+        self.bias_initializerL=['he_normal' for i in range(10)]
         #self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
         #self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
-        self.dropOutL   = []#[1,3,5]
-        self.dropOutRateL= []#[0.2,0.2,0.2]
-        self.activationL= ['relu','relu','relu','relu','relu',\
+        self.dropOutL     = [1,3,5,7]#[1,3,5,7]
+        self.dropOutRateL = [0.1,0.1,0.1,0.1]
+        self.activationL  = ['relu','relu','relu','relu','relu',\
         'relu','relu','relu','relu','relu','relu']
-        self.activationL= ['relu','relu']+['swish' for i in range(4)]+['relu']
-        self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
+        self.activationL  = ['relu','relu']+['swish' for i in range(4)]+['relu']
+        self.poolL        = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
         AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
         MaxPooling2D,AveragePooling2D,MaxPooling2D]
-        self.poolL      = [MaxPooling2D,AveragePooling2D,MaxPooling2D,\
+        self.poolL        = [MaxPooling2D,AveragePooling2D,MaxPooling2D,\
         AveragePooling2D,MaxPooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
         MaxPooling2D,AveragePooling2D,MaxPooling2D]
-        self.lossFunc   = lossFuncSoft(w=10)#10
+        self.lossFunc     = lossFuncSoft(w=10)#10
         self.inAndOutFunc = inAndOutFuncNewV2
     def inAndOut(self):
         return self.inAndOutFunc(self)
@@ -252,11 +284,12 @@ class xyt:
         return self.x.shape[0]
 
 class model(Model):
-    def __init__(self,weightsFile='',config=fcnConfig(),metrics=hitRateNp,channelList=[1,2,3,4]):
+    def __init__(self,weightsFile='',config=fcnConfig(),metrics=rateNp,\
+        channelList=[1,2,3,4]):
         config.inputSize[-1]=len(channelList)
         self.genM(config)
         self.config = config
-        self.Metrics = hitRateNp
+        self.Metrics = metrics
         self.channelList = channelList
         if len(weightsFile)>0:
             model.load_weights(weightsFile)
@@ -280,13 +313,8 @@ class model(Model):
         '''
         timeN0 = x.shape[1]
         timeN  = (x!=0).sum(axis=1,keepdims=True)
-        if x.shape[-1]==4:
-            x/=(x.std(axis=(1,2),keepdims=True)+1e-12)*(timeN0/timeN)**0.5
-            #x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
-        if x.shape[-1]==1:
-            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-19
-        if x.shape[-1]==2:
-            x[:,:,:,:]/=x[:,:,:,:].std(axis=(1,2,3),keepdims=True)+1e-19
+        timeN *= 1+0.2*(np.random.rand(*timeN.shape)-0.5)
+        x/=(x.std(axis=(1,2),keepdims=True))*(timeN0/timeN)**0.5
         if x.shape[-1] > len(self.channelList):
             return x[:,:,:,self.channelList]
         else:
@@ -300,15 +328,16 @@ class model(Model):
             t = ''
         XYT = xyt(x,y,t)
         self.trainByXYT(XYT,**kwarg)
-    def trainByXYT(self,XYT,N=2000,perN=200,batchSize=None,xTest='',yTest='',k0 = 1e-3,t=''):
+    def trainByXYT(self,XYT,N=2000,perN=200,batchSize=None,xTest='',\
+        yTest='',k0 = 5e-4,t='',count0=3):
         if k0>1:
             K.set_value(self.optimizer.lr, k0)
         indexL = range(len(XYT))
         #print(indexL)
         lossMin =100
-        count0  = 5
         count   = count0
         w0 = self.get_weights()
+        resStr=''
         #print(self.metrics)
         for i in range(N):
             iL = random.sample(indexL,perN)
@@ -328,13 +357,18 @@ class model(Model):
                         count = count0
                         lossMin = loss
                         w0 = self.get_weights()
+                        print('find better')
                     if count ==0:
                         break
                     #print(self.metrics)
-                    yout = self.predict(xTest)
+                    resStr+='\n %d loss :%f'%(i,loss)
                     print('test loss: ',loss,'sigma: ',XYT.timeDisKwarg['sigma'],\
-                                'w: ',self.config.lossFunc.w)
-                    printRes(yTest, yout)
+                        'w: ',self.config.lossFunc.w)
+                    if i%30==0 and i>10:
+                        yout = self.predict(xTest)
+                        resStr+='\n'+printRes_old(yTest, yout)
+                        if i%60==0:
+                            printRes(yTest, yout)
             if i%5==0:
                 print('learning rate: ',self.optimizer.lr)
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.95)
@@ -342,6 +376,7 @@ class model(Model):
                 perN += int(perN*0.05)
                 perN = min(1000, perN)
         self.set_weights(w0)
+        return resStr
     def trainByXYTCross(self,self1,XYT0,XYT1,N=2000,perN=100,batchSize=None,\
         xTest='',yTest='',k0 = -1,t='',per1=0.5):
         #XYT0 syn
@@ -411,7 +446,7 @@ class model(Model):
         f = 1/T
         count = x.shape[1]
         for i in range(len(x)):
-            print('show',i)
+            #print('show',i)
             timeL = np.arange(count)*delta
             if len(time0L)>0:
                 timeL+=time0L[i]
@@ -490,16 +525,17 @@ class model(Model):
 tTrain = (10**np.arange(0,1.000001,1/29))*16
 
 def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
-    sigmaL=[4,3,2,1.5]):
+    sigmaL=[4,3,2,1.5],count0=3,perN=200):
     '''
     依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
     '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    w0 = 2#4#8#8*3#8#5#10##model.config.lossFunc.w
+    w0 = 3#2#4#8#8*3#8#5#10##model.config.lossFunc.w
     testCount = len(corrLTest)
-    showCount = int(len(corrLTest)*2/4)
-    showD     = int(showCount/30)
+    showCount = int(len(corrLTest)*3/4)
+    showD     = int(showCount/40)
+    resStr = 'testCount %d showCount %d \n'%(testCount,showCount)
     for sigma in sigmaL:
         model.config.lossFunc.w = w0*(4/sigma)**0.5
         corrLTrain.timeDisKwarg['sigma']=sigma
@@ -507,13 +543,20 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
         corrLTest.iL=np.array([])
         model.compile(loss=model.config.lossFunc, optimizer='Nadam')
         xTest, yTest, tTest =corrLTest(np.arange(showCount,testCount))
-        model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest)
+        resStr+=model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest,\
+            count0=count0, perN=perN)
         
         
     xTest, yTest, tTest =corrLTest(np.arange(showCount))
     yout=model.predict(xTest)
-    printRes(yTest, yout)
-    corrLTest.plotPickErro(yout,tTrain,fileName=outputDir+'erro.jpg')
+    resStr += '\n test part\n'
+    resStr+= printRes_old(yTest, yout)
+    resStr+= printRes(yTest, yout)+'\n'
+    with open(outputDir+'resStr','w') as f:
+        f.write(resStr)
+    for threshold in [0.5,0.7,0.8]:
+            corrLTest.plotPickErro(yout,tTrain,fileName=outputDir+'erro.jpg',\
+                threshold=threshold)
     iL=np.arange(0,showCount,showD)
     model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
     T=tTrain,outputDir=outputDir)
