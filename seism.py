@@ -443,7 +443,8 @@ class Quake(Dist):
         'corners'   :2,\
         'zerophase' :True,\
         'maxA'      :1e5,\
-        'output': 'VEL'
+        'output': 'VEL',\
+        'isDisp': False
         }
         para0.update(para)
         print(para0)
@@ -572,9 +573,21 @@ class Quake(Dist):
                                 delta= sacsL[-1][i].stats['sac']['delta']
                                 timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
                                 plt.plot(timeL,data/data.std(),'r',linewidth=0.5)
+                    
                     for sac in sacsL[-1]:
                         sac.detrend()
                         sac.data -= sac.data.mean()
+
+                    if para['isDisp']:
+                        for sac in sacsL[-1]:
+                            sac.integrate()
+                            if np.random.rand()<0.01:
+                                print('integrate to Disp')
+                    
+                    for sac in sacsL[-1]:
+                        sac.detrend()
+                        sac.data -= sac.data.mean()
+
                     if para['freq'][0] > 0:
                         for sac in sacsL[-1]:
                             if para['filterName']=='bandpass':

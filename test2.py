@@ -406,14 +406,17 @@ corrLQuakePCEA = d.corrL(config.quakeCorr(quakes,stationsCEA,\
     byRecord=False,remove_resp=False,minSNR=12,isLoadFv=True,\
     fvD=fvDAvarage,isByQuake=False,para={\
     'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
-        'output':'VEL','freq':[1/250, 1/6],'filterName':'bandpass'}))
+        'output':'VEL','freq':[1/250, 1/6],'filterName':'bandpass',\
+        'isDisp':True}))
 
 
 corrLQuakePNE = d.corrL(config.quakeCorr(quakes,stationsNE,\
     byRecord=False,remove_resp=True,minSNR=12,isLoadFv=True,\
     fvD=fvDAvarage,isByQuake=False,para={\
     'pre_filt': (1/300, 1/200, 1/2, 1/1.5),\
-        'output':'VEL','freq':[1/6],'filterName':'lowpass'},))
+        #'output':'VEL','freq':[1/6],'filterName':'lowpass',\
+        'output':'VEL','freq':[1/250, 1/6],'filterName':'bandpass',\
+        'isDisp':True},))
 
 corrLQuakeP     =  d.corrL(corrLQuakePCEA[:-2000]\
     +corrLQuakePNE[:-2000])
@@ -422,12 +425,13 @@ random.shuffle(corrLQuakeP)
 random.shuffle(corrLQuakePTest)
 tTrain = (10**np.arange(0,1.000001,1/49))*10
 corrLQuakeP.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096*3,\
-byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True)
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.10,byAverage=True)
 corrLQuakePTest.setTimeDis(fvDAvarage,tTrain,sigma=4,maxCount=4096*3,\
-byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True)
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.10,byAverage=True)#0.05
 modelP = fcn.model(channelList=[0,2,3])
-fcn.trainAndTest(modelP,corrLQuakeP,corrLQuakePTest,outputDir='predict/CEA_P_',\
-    sigmaL=[1.5],tTrain=tTrain,perN=200,count0=3)
+fcn.trainAndTest(modelP,corrLQuakeP,corrLQuakePTest,\
+    outputDir='predict/0831-0156Disp_w0=2_rT=0.1/CEA_P_',\
+    sigmaL=[2],tTrain=tTrain,perN=200,count0=3,w0=2)
 corrLQuakePTest.getAndSave(modelP,'predict/CEA_P_',stationsCEA+stationsNE\
     ,isPlot=True,isLimit=False)
 '''
@@ -543,6 +547,13 @@ phaseLCEAV1_more 后255个无地震
 虽然加入了训练系统，但是部分频段仍然未被标注，也可以用于拾取
 如何从predicate 结果中选取有用的
 fit 的范式, 可以提高精度吗
+峰的宽度要和数据的误差匹配
+最好不好要有同名或者换过台的台阵当两个台阵处理
+stationTrain
+stationTest？
+和prem标准模型比较比较
+需要很大的感受野，所以deepSupersion对结果影响不大
+
 '''
 '''
 stations = seism.StationList('stations/CEA.sta_sel')
@@ -638,5 +649,32 @@ X1 = np.fft.fft(x1)
 phase = np.imag(X1[25]/X0[25])/w
 
 for corr in corrLQuakeP :
-    if np.isinf(corr.x1).sum()>0 :
+    if corr.xx.std()==0 :
         print(corr.name0)
+    if corr.x0.std()==0 :
+        print(corr.name0)
+    if corr.x1.std()==0 :
+        print(corr.name0)
+
+for corr in corrLQuakeP :
+    for x in [corr.xx, corr.x1, corr.x0]:
+        if np.isnan(x).sum()>0:
+            print(1)
+
+N = len(corrLQuakeP)
+loopN = int(N/1000)+1
+for i in range(loopN):
+    print(i)
+    x,y,t=corrLQuakeP(np.arange(1000*i,min(1000*(i+1),N)))
+    S =x[:,:,:,[0,2,3]].std(axis=1)
+    if (S==0).sum()>0:
+        print(np.where(S==0))
+
+N = len(corrLQuakePTest)
+loopN = int(N/1000)+1
+for i in range(loopN):
+    print(i)
+    x,y,t=corrLQuakePTest(np.arange(1000*i,min(1000*(i+1),N)))
+    S =x[:,:,:,[0,2,3]].std(axis=1)
+    if (S==0).sum()>0:
+        print(np.where(S==0))

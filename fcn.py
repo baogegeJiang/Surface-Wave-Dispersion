@@ -1,14 +1,19 @@
 from keras.models import  Model
 from keras.layers import Input, Softmax, MaxPooling2D,\
   AveragePooling2D,Conv2D,Conv2DTranspose,concatenate,Softmax,\
-  Dropout
+  Dropout,BatchNormalization
 import numpy as np
 from keras import backend as K
 from matplotlib import pyplot as plt   
 from keras.layers import Activation
 from keras.utils.generic_utils import get_custom_objects
 import random
+import obspy
+import time
 from mathFunc import findPos
+import os
+from keras.utils import plot_model
+
 #默认是float32位的网络
 def swish(inputs):
     return (K.sigmoid(inputs) * inputs)
@@ -64,14 +69,14 @@ def rightRateNp(yinPos,youtPos,yinMax,youtMax,maxD=0.03,K=np, minP=0.5):
 
 def printRes_old(yin, yout):
     #       0.01  0.8  0.36600 0.9996350
-    strL   = 'maxD  minP hitRate rightRate old'
-    strfmt = '\n%4.2f %3.1f %7.5f %7.5f'
+    strL   = 'maxD   minP hitRate rightRate old'
+    strfmt = '\n%5.3f %3.1f %7.5f %7.5f'
     yinPos  = yin.argmax( axis=1)
     youtPos = yout.argmax(axis=1)
     yinMax = yin.max(axis=1)
     youtMax = yout.max(axis=1)
-    for maxD in [0.03,0.02,0.01]:
-        for minP in [0.5,0.7,0.8]:
+    for maxD in [0.03,0.02,0.01,0.005]:
+        for minP in [0.5,0.7,0.8,0.9]:
             hitRate,rightRate = rateNp(\
                 yinPos,youtPos,yinMax,youtMax,maxD=maxD,minP=minP)
             strL += strfmt%(maxD, minP, hitRate, rightRate)
@@ -80,13 +85,13 @@ def printRes_old(yin, yout):
 
 def printRes(yin, yout):
     #       0.01  0.8  0.36600 0.9996350
-    strL   = 'maxD  minP hitRate rightRate'
-    strfmt = '\n%4.2f %3.1f %7.5f %7.5f'
+    strL   = 'maxD   minP hitRate rightRate'
+    strfmt = '\n%5.3f %3.1f %7.5f %7.5f'
     try:
         yinPos, yinMax = findPos(yin)
         youtPos, youtMax = findPos(yout) 
-        for maxD in [0.03,0.02,0.01]:
-            for minP in [0.5,0.7,0.8]:
+        for maxD in [0.03,0.02,0.01,0.005]:
+            for minP in [0.5,0.7,0.8,0.9]:
                 hitRate,rightRate = rateNp(\
                     yinPos,youtPos,yinMax,youtMax,maxD=maxD,minP=minP)
                 strL += strfmt%(maxD, minP, hitRate, rightRate)
@@ -187,6 +192,7 @@ def inAndOutFuncNewV2(config):
             strides=(1,1),padding='same',activation = config.activationL[i],\
             name=name+layerStr+'0',kernel_initializer=config.initializerL[i],\
             bias_initializer=config.bias_initializerL[i])(last)
+        last = BatchNormalization(axis=3,trainable=True)(last)
         convL[i] =last
         last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
             strides=(1,1),padding='same',activation = config.activationL[i],\
@@ -197,6 +203,8 @@ def inAndOutFuncNewV2(config):
         if i in config.dropOutL:
             ii   = config.dropOutL.index(i)
             last =  Dropout(config.dropOutRateL[ii])(last)
+        else:
+            last = BatchNormalization(axis=3,trainable=True)(last)
     convL[depth] =last
     for i in range(depth-1,-1,-1):
         if i <3:
@@ -213,12 +221,157 @@ def inAndOutFuncNewV2(config):
             if j in config.dropOutL:
                 jj   = config.dropOutL.index(j)
                 dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
+            else:
+                dConvL[j] = BatchNormalization(axis=3,trainable=True)(dConvL[j])
             convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
         
     outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),\
         padding='same',activation='sigmoid',name='dconv_out')(convL[0])
     return inputs,outputs
 
+def inAndOutFuncNewV3(config):
+    inputs  = Input(config.inputSize)
+    depth   =  len(config.featureL)
+    convL   = [None for i in range(depth+1)]
+    dConvL  = [None for i in range(depth+1)]
+    last    = inputs
+    for i in range(depth):
+        if i <4:
+            name = 'conv'
+        else:
+            name = 'CONV'
+        layerStr='_%d_'%i
+        
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'0',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        last = BatchNormalization(axis=3,trainable=True)(last)
+
+        last = Activation(config.activationL[i])(last)
+
+        convL[i] =last
+
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'1',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        if i in config.dropOutL:
+            ii   = config.dropOutL.index(i)
+            last =  Dropout(config.dropOutRateL[ii])(last)
+        else:
+            last = BatchNormalization(axis=3,trainable=True)(last)
+
+        last = Activation(config.activationL[i])(last)
+
+        last = config.poolL[i](pool_size=config.strideL[i],\
+            strides=config.strideL[i],padding='same')(last)
+
+    convL[depth] =last
+    for i in range(depth-1,-1,-1):
+        if i <3:
+            name = 'dconv'
+        else:
+            name = 'DCONV'
+        
+        for j in range(i+1):
+
+            layerStr='_%d_%d'%(i,j)
+
+            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
+            strides=config.strideL[j],padding='same',name=name+layerStr+'0',\
+            kernel_initializer=config.initializerL[j],\
+            bias_initializer=config.bias_initializerL[j])(convL[j+1])
+
+            if j in config.dropOutL:
+                jj   = config.dropOutL.index(j)
+                dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
+            else:
+                dConvL[j] = BatchNormalization(axis=3,trainable=True)(dConvL[j])
+
+            dConvL[j] = Activation(config.activationL[j])(dConvL[j])
+
+            convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
+        
+    outputs = Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
+        padding='same',activation='sigmoid',name='dconv_out')(convL[0])
+    return inputs,outputs
+
+def inAndOutFuncNewV4(config):
+    inputs  = Input(config.inputSize)
+    depth   =  len(config.featureL)
+    convL   = [None for i in range(depth+1)]
+    dConvL  = [None for i in range(depth+1)]
+    last    = inputs
+    for i in range(depth):
+        if i <4:
+            name = 'conv'
+        else:
+            name = 'CONV'
+        layerStr='_%d_'%i
+        
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'0',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        last = BatchNormalization(axis=3,trainable=True)(last)
+
+        last = Activation(config.activationL[i])(last)
+
+        convL[i] =last
+
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'1',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        if i in config.dropOutL:
+            ii   = config.dropOutL.index(i)
+            last =  Dropout(config.dropOutRateL[ii])(last)
+        else:
+            last = BatchNormalization(axis=3,trainable=True)(last)
+
+        last = Activation(config.activationL[i])(last)
+
+        last = config.poolL[i](pool_size=config.strideL[i],\
+            strides=config.strideL[i],padding='same')(last)
+
+    convL[depth] =last
+    outputsL =[]
+    for i in range(depth-1,-1,-1):
+        if i <3:
+            name = 'dconv'
+        else:
+            name = 'DCONV'
+        
+        for j in range(i+1):
+
+            layerStr='_%d_%d'%(i,j)
+
+            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
+            strides=config.strideL[j],padding='same',name=name+layerStr+'0',\
+            kernel_initializer=config.initializerL[j],\
+            bias_initializer=config.bias_initializerL[j])(convL[j+1])
+
+            if j in config.dropOutL:
+                jj   = config.dropOutL.index(j)
+                dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
+            else:
+                dConvL[j] = BatchNormalization(axis=3,trainable=True)(dConvL[j])
+
+            dConvL[j] = Activation(config.activationL[j])(dConvL[j])
+            convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
+            if i <config.deepLevel and j==0:
+                outputsL.append(Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
+                padding='same',activation='sigmoid',name='dconv_out_%d'%i)(convL[0]))
+        
+    #outputs = Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
+    #    padding='same',activation='sigmoid',name='dconv_out')(convL[0])
+    outputs = concatenate(outputsL,axis=2)
+    return inputs,outputs
 
 class fcnConfig:
     def __init__(self):
@@ -237,7 +390,9 @@ class fcnConfig:
         self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]
         self.featureL      = [30,40,60,60,80,60,40]
         self.featureL      = [15,20,20,25,25,40,60]
-        self.featureL      = [50,50,75,75,100,100,125]
+        #self.featureL      = [50,50,75,75,100,100,125]
+        self.featureL      = [25,25,50,50,75,100,125]
+        self.featureL      = [30,30,50,50,75,125,125]
         #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
         self.strideL       = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(3,1),\
         (4,1),(2,1),(2,1),(2,1)]
@@ -249,8 +404,8 @@ class fcnConfig:
         self.bias_initializerL=['he_normal' for i in range(10)]
         #self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
         #self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
-        self.dropOutL     = [1,3,5,7]#[1,3,5,7]
-        self.dropOutRateL = [0.1,0.1,0.1,0.1]
+        self.dropOutL     =[]# [0,1,2]#[5,6,7]#[1,3,5,7]#[1,3,5,7]
+        self.dropOutRateL = []#[0.2,0.2,0.2]#[0.2,0.2,0.2]
         self.activationL  = ['relu','relu','relu','relu','relu',\
         'relu','relu','relu','relu','relu','relu']
         self.activationL  = ['relu','relu']+['swish' for i in range(4)]+['relu']
@@ -261,7 +416,8 @@ class fcnConfig:
         AveragePooling2D,MaxPooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
         MaxPooling2D,AveragePooling2D,MaxPooling2D]
         self.lossFunc     = lossFuncSoft(w=10)#10
-        self.inAndOutFunc = inAndOutFuncNewV2
+        self.inAndOutFunc = inAndOutFuncNewV4
+        self.deepLevel = 4
     def inAndOut(self):
         return self.inAndOutFunc(self)
 
@@ -303,7 +459,10 @@ class model(Model):
         x = self.inx(x)
         return super().predict(x)
     def fit(self,x,y,batchSize=None):
-        super().fit(self.inx(x) ,y,batch_size=batchSize)
+        return super().fit(self.inx(x) ,y,batch_size=batchSize)
+    def plot(self,filename='model.png'):
+        plot_model(self, to_file=filename)
+
     def inx(self,x):
         #return x/x.max(axis=(1,2,3),keepdims=True)
         '''
@@ -311,14 +470,14 @@ class model(Model):
             x[:,:,:,:2]/=x[:,:,:,:2].std(axis=(1,2,3),keepdims=True)+1e-12
             x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
         '''
-        timeN0 = x.shape[1]
-        timeN  = (x!=0).sum(axis=1,keepdims=True)
-        timeN *= 1+0.2*(np.random.rand(*timeN.shape)-0.5)
-        x/=(x.std(axis=(1,2),keepdims=True))*(timeN0/timeN)**0.5
         if x.shape[-1] > len(self.channelList):
-            return x[:,:,:,self.channelList]
-        else:
-            return x
+            x = x[:,:,:,self.channelList]
+        timeN0 = np.float32(x.shape[1])
+        timeN  = (x!=0).sum(axis=1,keepdims=True).astype(np.float32)
+        timeN *= 1+0.2*(np.random.rand(*timeN.shape).astype(np.float32)-0.5)
+        x/=(x.std(axis=(1,2),keepdims=True))*(timeN0/timeN)**0.5
+        
+        return x
     def __call__(self,x):
         return super(Model, self).__call__(K.tensor(self.inx(x)))
     def train(self,x,y,**kwarg):
@@ -333,42 +492,59 @@ class model(Model):
         if k0>1:
             K.set_value(self.optimizer.lr, k0)
         indexL = range(len(XYT))
+        sampleDone = np.zeros(len(XYT))
         #print(indexL)
         lossMin =100
         count   = count0
         w0 = self.get_weights()
         resStr=''
+        trainTestLoss = []
+        iL = random.sample(indexL,xTest.shape[0])
+        xTrain, yTrain , t0LTrain = XYT(iL)
         #print(self.metrics)
         for i in range(N):
             iL = random.sample(indexL,perN)
+            for ii in iL:
+                sampleDone[ii]+=1
             x, y , t0L = XYT(iL)
             #print(XYT.iL)
             self.fit(x ,y,batchSize=batchSize)
             if i%10==0:
                 if len(xTest)>0:
-                    loss    = self.evaluate(self.inx(xTest),yTest)
-                    if loss >= lossMin:
+                    lossTrain = self.evaluate(self.inx(xTrain),yTrain)
+                    lossTest    = self.evaluate(self.inx(xTest),yTest)
+                    print('train loss',lossTrain,'test loss: ',lossTest,\
+                        'sigma: ',XYT.timeDisKwarg['sigma'],\
+                        'w: ',self.config.lossFunc.w, \
+                        'no sampleRate:', 1 - np.sign(sampleDone).mean(),\
+                        'sampleTimes',sampleDone.mean())
+                    resStr+='\n %d train loss : %f valid loss :%f'%(i,lossTrain,lossTest)
+                    trainTestLoss.append([i,lossTrain,lossTest])
+                    if lossTest >= lossMin:
                         count -= 1
-                    if loss > 3*lossMin:
+                    if lossTest > 3*lossMin:
                         self.set_weights(w0)
                         #count = count0
                         print('reset to smallest')
-                    if loss < lossMin:
+                    if lossTest < lossMin:
                         count = count0
-                        lossMin = loss
+                        lossMin = lossTest
                         w0 = self.get_weights()
                         print('find better')
                     if count ==0:
                         break
                     #print(self.metrics)
-                    resStr+='\n %d loss :%f'%(i,loss)
-                    print('test loss: ',loss,'sigma: ',XYT.timeDisKwarg['sigma'],\
-                        'w: ',self.config.lossFunc.w)
+                    
                     if i%30==0 and i>10:
-                        yout = self.predict(xTest)
-                        resStr+='\n'+printRes_old(yTest, yout)
-                        if i%60==0:
-                            printRes(yTest, yout)
+                        youtTrain = self.predict(xTrain)
+                        youtTest  = self.predict(xTest)
+                        for level in range(youtTrain.shape[-2]):
+                            print('level',len(self.config.featureL)\
+                                -youtTrain.shape[-2]+level+1)
+                            resStr +='\nlevel: %d'%(len(self.config.featureL)\
+                                -youtTrain.shape[-2]+level+1)
+                            resStr+='\ntrain '+printRes_old(yTrain, youtTrain[:,:,level:level+1])
+                            resStr+='\ntest '+printRes_old(yTest, youtTest[:,:,level:level+1])
             if i%5==0:
                 print('learning rate: ',self.optimizer.lr)
                 K.set_value(self.optimizer.lr, K.get_value(self.optimizer.lr) * 0.95)
@@ -376,7 +552,7 @@ class model(Model):
                 perN += int(perN*0.05)
                 perN = min(1000, perN)
         self.set_weights(w0)
-        return resStr
+        return resStr,trainTestLoss
     def trainByXYTCross(self,self1,XYT0,XYT1,N=2000,perN=100,batchSize=None,\
         xTest='',yTest='',k0 = -1,t='',per1=0.5):
         #XYT0 syn
@@ -390,6 +566,7 @@ class model(Model):
         count0  = 10
         count   = count0
         w0 = self.get_weights()
+
         #print(self.metrics)
         for i in range(N):
             is0 =False
@@ -441,7 +618,8 @@ class model(Model):
             if i>10 and i%5==0:
                 perN += int(perN*0.02)
         self.set_weights(w0)
-    def show(self, x, y0,outputDir='predict/',time0L='',delta=0.5,T=np.arange(19),fileStr=''):
+    def show(self, x, y0,outputDir='predict/',time0L='',delta=0.5,T=np.arange(19),fileStr='',\
+        level=-1):
         y = self.predict(x)
         f = 1/T
         count = x.shape[1]
@@ -464,7 +642,7 @@ class model(Model):
             legend = ['r s','i s',\
             'r h','i h']
             for j in range(x.shape[-1]):
-                plt.plot(timeL,self.inx(x[i:i+1,:,0:1,j:j+1])[0,:,0,0]-j,'rbgk'[j],\
+                plt.plot(timeL,self.inx(x[i:i+1,:,0:1,j:j+1])[0,:,-1,0]-j,'rbgk'[j],\
                     label=legend[j],linewidth=0.3)
             #plt.legend()
             plt.xlim(xlim)
@@ -476,7 +654,7 @@ class model(Model):
             plt.gca().semilogy()
             plt.xlim(xlimNew)
             plt.subplot(4,1,3)
-            plt.pcolor(timeL,f,y[i,:,0,:].transpose(),cmap='bwr',vmin=0,vmax=1)
+            plt.pcolor(timeL,f,y[i,:,level,:].transpose(),cmap='bwr',vmin=0,vmax=1)
             #plt.clim(0,1)
             plt.plot(timeL[pos0.astype(np.int)],f,'k',linewidth=0.5,alpha=0.5)
             plt.ylabel('f/Hz')
@@ -495,7 +673,7 @@ class model(Model):
             plt.ylabel('A')
             plt.xlim([fL[1],fL[-1]/2])
             #plt.gca().semilogx()
-            plt.savefig('%s%s%d.jpg'%(outputDir,fileStr,i),dpi=200)
+            plt.savefig('%s%s_%d_%d.jpg'%(outputDir,fileStr,level,i),dpi=200)
     def predictRaw(self,x):
         yShape = list(x.shape)
         yShape[-1] = self.config.outputSize[-1]
@@ -525,17 +703,26 @@ class model(Model):
 tTrain = (10**np.arange(0,1.000001,1/29))*16
 
 def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
-    sigmaL=[4,3,2,1.5],count0=3,perN=200):
+    sigmaL=[4,3,2,1.5],count0=3,perN=200,w0=4):
     '''
     依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
     '''
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    w0 = 3#2#4#8#8*3#8#5#10##model.config.lossFunc.w
+    #2#4#8#8*3#8#5#10##model.config.lossFunc.w
+    tmpDir =  os.path.dirname(outputDir)
+    if not os.path.exists(tmpDir):
+        os.makedirs(tmpDir)
     testCount = len(corrLTest)
     showCount = int(len(corrLTest)*3/4)
     showD     = int(showCount/40)
     resStr = 'testCount %d showCount %d \n'%(testCount,showCount)
+    resStr +='train set setting: %s\n'%corrLTrain
+    resStr +='test  set setting: %s\n'%corrLTest
+    resStr +='perN: %d count0: %d w0: %.5f\n'%(perN, count0, w0)
+    resStr +='sigmaL: %s\n'%sigmaL
+    print(resStr)
+    trainTestLossL =[]
     for sigma in sigmaL:
         model.config.lossFunc.w = w0*(4/sigma)**0.5
         corrLTrain.timeDisKwarg['sigma']=sigma
@@ -543,23 +730,39 @@ def trainAndTest(model,corrLTrain,corrLTest,outputDir='predict/',tTrain=tTrain,\
         corrLTest.iL=np.array([])
         model.compile(loss=model.config.lossFunc, optimizer='Nadam')
         xTest, yTest, tTest =corrLTest(np.arange(showCount,testCount))
-        resStr+=model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest,\
+        resStrTmp, trainTestLoss=model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest,\
             count0=count0, perN=perN)
+        resStr += resStrTmp
+        trainTestLossL.append(trainTestLoss)
         
         
     xTest, yTest, tTest =corrLTest(np.arange(showCount))
     yout=model.predict(xTest)
     resStr += '\n test part\n'
-    resStr+= printRes_old(yTest, yout)
-    resStr+= printRes(yTest, yout)+'\n'
-    with open(outputDir+'resStr','w') as f:
+    for level in range(yout.shape[-2]):
+        print('level: %d'%(len(model.config.featureL)\
+            -yout.shape[-2]+level+1))
+        resStr +='\nlevel: %d'%(len(model.config.featureL)\
+            -yout.shape[-2]+level+1)
+        resStr+= printRes_old(yTest, yout[:,:,level:level+1])+'\n'
+        #resStr+= printRes(yTest, yout[:,:,level:level+1])+'\n'
+    head = outputDir+'resStr_'+\
+        obspy.UTCDateTime(time.time()).strftime('%y%m%d-%H%M%S')
+    with open(head+'.log','w') as f:
+        ###save model
+        model.summary(print_fn=lambda x: f.write(x + '\n'))
         f.write(resStr)
+    for i in range(len(sigmaL)):
+        sigma = sigmaL[i]
+        trainTestLoss = trainTestLossL[i]
+        np.savetxt('%s_sigma%.3f_loss'%(head,sigma),np.array(trainTestLoss))
     for threshold in [0.5,0.7,0.8]:
-            corrLTest.plotPickErro(yout,tTrain,fileName=outputDir+'erro.jpg',\
+        corrLTest.plotPickErro(yout,tTrain,fileName=outputDir+'erro.jpg',\
                 threshold=threshold)
     iL=np.arange(0,showCount,showD)
-    model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
-    T=tTrain,outputDir=outputDir)
+    for level in range(-1,-5,-1):
+        model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
+        T=tTrain,outputDir=outputDir,level=level)
 
 
 
@@ -571,7 +774,7 @@ def trainAndTestCross(model0,model1,corrLTrain0,corrLTrain1,corrLTest,outputDir=
     #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
     #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
     #different data train different part
-    w0 = 5#5#10##model.config.lossFunc.w
+    w0 = 2#5#10##model.config.lossFunc.w
     for i in range(len(sigmaL)):
         sigma = sigmaL[i]
         mode = modeL[i]

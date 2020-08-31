@@ -1299,9 +1299,11 @@ class corr:
         timeDis = np.exp(-((timeL-t)/tmpSigma)**2)
         if byA:
             spec = np.abs(np.fft.fft(self.xx))
-            spec/=spec.max()
             minf = 1/(len(self.timeL)*(self.timeL[1]-self.timeL[0]))
             indexF = (f.reshape([-1])/minf).astype(np.int)
+            maxIndexF = indexF.max() 
+            #spec/=spec.max()
+            spec/=spec[:maxIndexF+1].mean()
             aF = spec[indexF]
             #print(aF,aF<rThreshold)
             timeDis[:,aF<rThreshold]=timeDis[:,aF<rThreshold]*0
@@ -1356,9 +1358,6 @@ class corrL(list):
         super().__init__()
         if len(argv)>0:
             for tmp in argv[0]:
-                if tmp.xx.std() ==0:
-                    print(tmp.name0,' no data')
-                    continue
                 if 'fvD' in kwargs:
                     fvD = kwargs['fvD']
                     modelName =tmp.modelFile
@@ -1376,6 +1375,23 @@ class corrL(list):
             #if isinstance(argv[0],corrL):
             #    self.x=argv[0].x
             #    self.y=argv[0].y
+    def checkIn(self,new):
+        new.x0 = new.x0.astype(np.float32)
+        new.x1 = new.x1.astype(np.float32)
+        for x in [np.real(new.xx), new.x0, new.x1]:
+            if x.std()==0:
+                return False
+            if x.max()==0:
+                return False
+            x/= x.max()
+            if (x>1e-3).sum()<5:
+                return False
+        return True
+    def append(self,new):
+        if self.checkIn(new):
+            super().append(new)
+        else:
+            print('data not right')
     def shuffle(self):
         count = len(self)
         ori   = list(self)
@@ -1439,6 +1455,8 @@ class corrL(list):
     def __call__(self,iL):
         self.getTimeDis(iL,*self.timeDisArgv,**self.timeDisKwarg)
         return self.x, self.y, self.t0L
+    def __str__(self):
+        return '%d %s'%(len(self),str(self.timeDisKwarg))
     def getTimeDis(self,iL,fvD={},T=[],sigma=2,maxCount=512,noiseMul=0,byT=False,\
         byA=False,rThreshold=0.1,byAverage=False):
         #print('sigma',sigma)
@@ -1727,7 +1745,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
     removeP=False,isLoadFv=False,fvD={},quakeName='',isByQuake=False,\
-    specN = 40,specThreshold=0.8):
+    specN = 40,specThreshold=0.8,isDisp=False):
     if removeP:
         print('removeP')
     corrL = []
@@ -1749,6 +1767,8 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
         #    sacsL[i][0].stats['sac']['gcarc'])
         #if time>5:
         #    tStart = time-10
+        if isDisp:
+            sacsL[i][0].integrate()
         to = 0
         dto = to - sacsL[i][0].stats['sac']['b']
         io = max(0,int(dto/sacsL[i][0].stats['sac']['delta']))
@@ -1787,8 +1807,11 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             sacsL[i][0].data -= sacsL[i][0].data.mean()
             sacsL[i][0].data[:i0]*=0
             sacsL[i][0].data[i1:]*=0
-        if sacsL[i][0].data.std()==0:
+        STD = sacsL[i][0].data.std()
+        if STD ==0:
             SNR[i]=-1
+        else:
+            sacsL[i][0].data/=STD
 
     #print(SNR)
     print((SNR>minSNR).sum(),minSNR,isLoadFv)
