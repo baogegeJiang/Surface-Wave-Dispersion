@@ -12,7 +12,7 @@ fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
 nickStrL='1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM'
-strType={'S':str,'f':float,'F':float,'i':int, 'l':tolist}
+strType={'S':str,'f':float,'F':float,'i':int, 'l':tolist,'b':bool}
 NoneType = type(None)
 
 
@@ -158,9 +158,9 @@ class Station(Dist):
     def defaultSet(self):
         super().defaultSet()
         self.keysIn   = 'net sta compBase lo la erroLo erroLa dep erroDep '.split()
-        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum nameMode'.split()
-        self.keysType ='S S S f f f f f f S l f F S S S S'.split()
-        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','','']
+        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum nameMode netSta doFilt oRemove'.split()
+        self.keysType ='S S S f f f f f f S l f F S S S S S b b'.split()
+        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','','','',True,False]
         self.keysName = ['net','sta']
     def getNickName(self, index):
         nickName = ''
@@ -185,12 +185,17 @@ class Station(Dist):
 
         if key =='net' and self['nameMode']=='':
             self['nameMode'] = self['net']
-
+        if key =='netSta' and self[key]!='' and isinstance(self['net'],NoneType)\
+         and isinstance(self['sta'],NoneType):
+            self['net'], self['sta'] = self[key].split('.')[:2]
     def baseSacName(self,resDir='',strL='ENZ',infoStr=''):
         if infoStr=='':
             return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in strL]
         else:
             return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+infoStr+'.'+self['compBase']+comp for comp in strL]
+    def set(self,key,value):
+        for tmp in self:
+            tmp[key] = value
     def getInventory(self):
         self.sensor=[]
         self.das=[]
@@ -301,6 +306,9 @@ class StationList(list):
         netSta = netSta.split('/')[-1]
         net, sta = netSta.split(spl)[:2]
         return self.find(sta,net)
+    def set(self,key,value):
+        for tmp in self:
+            tmp[key] = value
 
 
         
@@ -444,7 +452,7 @@ class Quake(Dist):
         'zerophase' :True,\
         'maxA'      :1e5,\
         'output': 'VEL',\
-        'isDisp': False
+        'toDisp': False
         }
         para0.update(para)
         print(para0)
@@ -459,7 +467,7 @@ class Quake(Dist):
             print('outputing ',para['output'])
         for staIndex in range(len(stations)):
             station = stations[staIndex]
-            if remove_resp :
+            if remove_resp and station['oRemove'] ==False:
                 sensorName,dasName,sensorNum = station.getSensorDas()
                 if sensorName=='UNKNOWN' or sensorName==''  \
                 or dasName=='UNKNOWN' or dasName=='':
@@ -491,7 +499,7 @@ class Quake(Dist):
                 continue
             resSacNames = station.baseSacName(tmpDir,strL=strL)
             respDone = False
-            if remove_resp and isSave==False:
+            if remove_resp and isSave==False and station['oRemove'] ==False:
                 isF = True
                 resSacNames = station.baseSacName(tmpDir,strL=strL,infoStr=respStr)
                 for resSacName in resSacNames:
@@ -503,7 +511,7 @@ class Quake(Dist):
                     #print(station,'done')
                 else:
                     resSacNames = station.baseSacName(tmpDir,strL=strL)
-            if remove_resp and isSkip==True and isSave==True:
+            if remove_resp and isSkip==True and isSave==True and station['oRemove'] ==False:
                 isF = True
                 resSacNamesTmp = station.baseSacName(tmpDir,strL=strL,infoStr=respStr)
                 for resSacName in resSacNamesTmp:
@@ -532,7 +540,7 @@ class Quake(Dist):
                             delta= sacsL[-1][i].stats['sac']['delta']
                             timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
                             plt.plot(timeL,data/data.std(),'b',linewidth=0.5)
-                    if remove_resp and respDone==False:
+                    if remove_resp and respDone==False and station['oRemove'] ==False:
                         print('remove_resp ',station)
                         
                         for channelIndex in range(3):
@@ -578,7 +586,7 @@ class Quake(Dist):
                         sac.detrend()
                         sac.data -= sac.data.mean()
 
-                    if para['isDisp']:
+                    if para['toDisp']:
                         for sac in sacsL[-1]:
                             sac.integrate()
                             if np.random.rand()<0.01:
@@ -588,7 +596,7 @@ class Quake(Dist):
                         sac.detrend()
                         sac.data -= sac.data.mean()
 
-                    if para['freq'][0] > 0:
+                    if para['freq'][0] > 0  and station['doFilt']:
                         for sac in sacsL[-1]:
                             if para['filterName']=='bandpass':
                                 sac.filter(para['filterName'],\
@@ -604,7 +612,7 @@ class Quake(Dist):
                                     corners=para['corners'], zerophase=para['zerophase'])
                     if isPlot:
                         plt.savefig(resSacNames[0]+'.jpg',dpi=200)
-                    if isSave and remove_resp:
+                    if isSave and remove_resp and station['oRemove'] ==False:
                         resSacNames = station.baseSacName(tmpDir,strL=strL,infoStr=respStr)
                         for i in range(3):
                             sacsL[-1][i].write(resSacNames[i],format='SAC')

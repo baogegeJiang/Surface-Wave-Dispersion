@@ -1282,21 +1282,31 @@ class corr:
                                   ])
             return corrType
     def outputTimeDis(self,FV,T=np.array([5,10,20,30,50,80,100,150,200,250,300]),sigma=2,\
-        byT=False,byA=False,rThreshold=0.1):
+        byT=False,byA=False,rThreshold=0.1,set2One=False,move2Int=False):
         self.T=T
         f  = 1/T
         t0 = self.timeL[0]
+        delta = self.timeL[1]-self.timeL[0]
+        halfV = np.exp(-(delta*0.5/sigma)**2)
+
         dim = [self.timeL.shape[0],T.shape[0]]
         timeDis = np.zeros(dim)
         f = f.reshape([1,-1])
         timeL = self.timeL.reshape([-1,1])
         v = FV(f,self.dis[0],self.dis[1])
         t = self.dDis/v
+        if move2Int:
+            dt = np.abs(t-timeL)
+            minT = dt.min(axis=0)
+            indexT = dt.argmin(axis=0)
+            t[0,minT<delta] = timeL[indexT,0][minT<delta]
         tmpSigma = sigma
         if byT:
             tMax =max(300,t.max())
             tmpSigma = sigma/300*tMax
         timeDis = np.exp(-((timeL-t)/tmpSigma)**2)
+        if set2One and byT == False:
+            timeDis[timeDis>halfV] = 1
         if byA:
             spec = np.abs(np.fft.fft(self.xx))
             minf = 1/(len(self.timeL)*(self.timeL[1]-self.timeL[0]))
@@ -1349,6 +1359,12 @@ class corr:
         tOut   = self.timeL[posOut]
         v  = self.dis/tOut
         return v,prob
+    def getStaName(self):
+        netSta0 = os.path.basename(self.name0).split('.')[:2]
+        netSta1 = os.path.basename(self.name1).split('.')[:2]
+        return '%s.%s'%(netSta0[0],netSta0[1]),'%s.%s'%(netSta1[0],netSta1[1])
+
+
 def compareList(i0,i1):
     di = np.array(i0)-np.array(i1)
     return np.sum(np.abs(di))<0.1
@@ -1386,9 +1402,23 @@ class corrL(list):
             x/= x.max()
             if (x>1e-3).sum()<5:
                 return False
-        return True
+
+        return self.checkNorm(new)
+    def checkNorm(self,new,timeMax=3000,threshold=1):
+        delta = new.timeL[1] - new.timeL[0]
+        i0 = max(1,int((0-new.timeL[0])/delta))
+        i1 = min(new.xx.shape[0]-1,int((3000-new.timeL[0])/delta))
+        if np.real(new.xx[i1:]).max()>np.real(new.xx[i0:i1]).max()*threshold:
+            return False
+        else:
+            return True
+
     def append(self,new):
         if self.checkIn(new):
+            if not isinstance(new, corr):
+                new1  = corr()
+                new1.setFromDict(new.toDict())
+                new = new1
             super().append(new)
         else:
             print('data not right')
@@ -1458,7 +1488,8 @@ class corrL(list):
     def __str__(self):
         return '%d %s'%(len(self),str(self.timeDisKwarg))
     def getTimeDis(self,iL,fvD={},T=[],sigma=2,maxCount=512,noiseMul=0,byT=False,\
-        byA=False,rThreshold=0.1,byAverage=False):
+        byA=False,rThreshold=0.1,byAverage=False,set2One=False,move2Int=False,\
+        modelNameO=''):
         #print('sigma',sigma)
         if len(iL)==0:
             iL=np.arange(len(self))
@@ -1481,22 +1512,27 @@ class corrL(list):
             i = iL[ii]
             maxCount = min(maxCount0,self[i].xx.shape[0],self[i].x0.shape[0],\
                 self[i].x1.shape[0])
-            modelName =self[i].modelFile
-            if byAverage:
-                if len(modelName.split('_'))>=2:
-                    name0 = modelName.split('_')[-2]
-                    name1 = modelName.split('_')[-1]
-                    modelName0 ='%s_%s'%(name0,name1)
-                    modelName1 ='%s_%s'%(name1,name0)
-                    #print(modelName0)
-                    if modelName0 in fvD:
+            if modelNameO == '':
+                modelName =self[i].modelFile
+                if byAverage:
+                    if len(modelName.split('_'))>=2:
+                        name0 = modelName.split('_')[-2]
+                        name1 = modelName.split('_')[-1]
+                        modelName0 ='%s_%s'%(name0,name1)
+                        modelName1 ='%s_%s'%(name1,name0)
                         #print(modelName0)
-                        modelName = modelName0
-                    if modelName1 in fvD:
-                        #print(modelName1)
-                        modelName = modelName1
+                        if modelName0 in fvD:
+                            #print(modelName0)
+                            modelName = modelName0
+                        if modelName1 in fvD:
+                            #print(modelName1)
+                            modelName = modelName1
+            else:
+                modelName = modelNameO
+            
             tmpy,t0=self[i].outputTimeDis(fvD[modelName],\
-                T=T,sigma=sigma,byT=byT,byA=byA,rThreshold=rThreshold)
+                T=T,sigma=sigma,byT=byT,byA=byA,rThreshold=rThreshold,set2One=set2One,\
+                move2Int=move2Int)
             iP,iN = self.ipin(t0,self[i].fs)
             y[ii,iP:maxCount+iN,0,:] =tmpy[-iN:maxCount-iP]
             x[ii,iP:maxCount+iN,0,0] = np.real(self[i].xx.\
@@ -1564,7 +1600,7 @@ class corrL(list):
                     time     = self.t0L[i]+pos*self.deltaL[i]
                     v[i,j]   = self.dDisL[i]/time
         return v,prob
-    def saveV(self,v,prob,f,T,iL=[],stations=[], minProb= 0.7,resDir ='models/predict/'):
+    def saveV(self,v,prob,T,iL=[],stations=[], minProb= 0.7,resDir ='models/predict/'):
         '''
         if len(iL) ==0:
             iL=self.iL
@@ -1603,8 +1639,7 @@ class corrL(list):
         for i in range(v.shape[0]):
             index = iL[i]
             corr  = self[index]
-            sta0 = corr.name0
-            sta1 = corr.name1
+            sta0,sta1 = corr.getStaName()
             station0 = stations.Find(sta0)
             station1 = stations.Find(sta1)
             timeStr, laStr, loStr =corr.quakeName.split('_')
@@ -1636,19 +1671,22 @@ class corrL(list):
                 
                 f.write('2 %d\n'%len(vIndex))
                 for ii in vIndex:
-                    f.write('%f\n'%f[ii])
+                    f.write('%f\n'%(1/T[ii]))
                 for ii in vIndex:
                     f.write('%f\n'%v[i][ii])
 
 
 
     def getAndSave(self,model,fileName,stations,isPlot=False,isSimple=True,\
-        D=0.2,isLimit=False,resDir ='models/predict/',isFit = False):
+        D=0.2,isLimit=False,isFit = False,minProb=0.7):
         N = len(self)
         if 'T' in self.timeDisKwarg:
             T = self.timeDisKwarg['T']
         else:
             T = self.timeDisArgv[1]
+        resDir = os.path.dirname(fileName)
+        if not os.path.exists(resDir):
+            os.makedirs(resDir)
         M = len(T)
         v = np.zeros([N,M])
         v0= np.zeros([N,M])
@@ -1660,8 +1698,7 @@ class corrL(list):
             v[i0:i1],prob[i0:i1]=self.getV(model.predict(x),isSimple=isSimple,\
                 D=D,isLimit=isLimit,isFit=isFit)
             v0[i0:i1],prob0[i0:i1]=self.getV(y)
-        with open(fileName,'w+') as f:
-            self.saveV(v,prob,f,T, np.arange(N),stations,resDir =resDir)
+        self.saveV(v,prob,T, np.arange(N),stations,resDir =resDir,minProb=minProb)
         if isPlot:
             '''
             plt.close()
@@ -1677,9 +1714,10 @@ class corrL(list):
             plt.savefig(fileName+'_dv.jpg',dpi=300)
             '''
             dv = np.abs(v-v0)
+            dvO = v-v0
             plt.close()
             for i in range(dv.shape[0]):
-                indexL = validL(dv[i],prob[i],minProb=0.75,minV=-1,maxV=2)
+                indexL = validL(dv[i],prob[i],minProb=minProb,minV=-1,maxV=2)
                 if np.random.rand()<0.1:
                         print('validL: ',indexL)
                 for iL in indexL:
@@ -1690,19 +1728,20 @@ class corrL(list):
             plt.xlabel('v/(m/s)')
             plt.ylabel('f/Hz')
             plt.savefig(fileName+'.jpg',dpi=300)
-
+            plt.close()
             for i in range(dv.shape[0]):
-                indexL = validL(dv[i],prob[i],minProb=0.75,minV=-1,maxV=2)
+                indexL = validL(dv[i],prob[i],minProb=minProb,minV=-1,maxV=2)
                 if np.random.rand()<0.1:
                         print('validL: ',indexL)
                 for iL in indexL:
                     iL = np.array(iL).astype(np.int)
-                    plt.plot(dv[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
-            plt.xlim([2,7])
+                    plt.plot(dvO[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
+            plt.xlim([-1,1])
             plt.xlabel('dv/(m/s)')
             plt.ylabel('f/Hz')
             plt.gca().semilogy()
             plt.savefig(fileName+'_dv.jpg',dpi=300)
+            plt.close()
             
 
     def ipin(self,dt,fs):
@@ -1745,7 +1784,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
     removeP=False,isLoadFv=False,fvD={},quakeName='',isByQuake=False,\
-    specN = 40,specThreshold=0.8,isDisp=False):
+    specN = 40,specThreshold=0.5,isDisp=False):#specThreshold=0.8
     if removeP:
         print('removeP')
     corrL = []
@@ -1846,13 +1885,13 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                 continue
             minDis = dis.min()
             if not (isLoadFv and isByQuake):
-                maxD = 150
+                maxD = 250
                 maxTheta = 10
                 if np.random.rand()<0.01:
                     print(disDegree(minDis,maxD=maxD,maxTheta=maxTheta),\
                         disDegree(dis01,maxD=maxD,maxTheta=maxTheta))
-                thetaE = max(3,disDegree(minDis,maxD=maxD,maxTheta=maxTheta))#10
-                theta01= max(3,disDegree(dis01,maxD=maxD,maxTheta=maxTheta))#10
+                thetaE = max(5,disDegree(minDis,maxD=maxD,maxTheta=maxTheta))#3,10
+                theta01= max(5,disDegree(dis01,maxD=maxD,maxTheta=maxTheta))#3,10
                 if np.abs((az[0]-az[1]+thetaE)%360)>2*thetaE:
                     continue
                 if np.abs((baz0-az01+theta01)%360)>2*theta01:

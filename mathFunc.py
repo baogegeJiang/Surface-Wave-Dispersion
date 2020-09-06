@@ -153,6 +153,7 @@ def flat(z,vp,vs,rho,m=-2,R=6371):
     vsNew   =  (miuNew/rhoNew)**0.5
     return zNew,vpNew,vsNew,rhoNew
 
+@jit
 def validL(v,prob, minProb = 0.7,minV=2,maxV=6):
     l    = []
     tmp  = []
@@ -231,6 +232,12 @@ def findPos(y, moreN = 10):
     return yPos, yMax
 
 def disDegree(dis,maxD = 100, maxTheta=20):
+    delta = dis/110.7
+    theta0 = maxD/110.7
+    theta = theta0/np.sin(delta/180*np.pi)
+    return min(theta,maxTheta)
+
+def disDegreeBak(dis,maxD = 100, maxTheta=20):
     delta = dis/110.7
     if delta >90:
         delta = 90
