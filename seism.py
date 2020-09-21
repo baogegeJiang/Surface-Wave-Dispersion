@@ -481,7 +481,7 @@ class Quake(Dist):
                             station.sensor[channelIndex][0][0][0].code != station['comp'][channelIndex]:
                             print('no Such Resp')
                             print(station.sensor[channelIndex][0][0][0].code,station['comp'][channelIndex])
-                            time.sleep(1)
+                            #time.sleep(1)
                             rigthResp=False
                     if rigthResp == False:
                         print('#### no Such Resp')
@@ -529,6 +529,9 @@ class Quake(Dist):
                     #print('no origin sac')
                     break
             if isF == True:
+                if remove_resp and respDone == False and station['oRemove'] ==False and isSave == False \
+                and isSkip:
+                    continue
                 if isRead:
                     #print(resSacNames)
                     sacsL.append([ obspy.read(resSacName)[0] for resSacName in resSacNames])
@@ -543,7 +546,7 @@ class Quake(Dist):
                     if remove_resp and respDone==False and station['oRemove'] ==False:
                         print('remove_resp ',station)
                         
-                        for channelIndex in range(3):
+                        for channelIndex in range(len(strL)):
                             sac = sacsL[-1][channelIndex]
                             channelIndexO = defaultStrL.index(strL[channelIndex])
                             sensor = station.sensor[channelIndexO]
@@ -599,6 +602,8 @@ class Quake(Dist):
                     if para['freq'][0] > 0  and station['doFilt']:
                         for sac in sacsL[-1]:
                             if para['filterName']=='bandpass':
+                                if np.random.rand()<0.01:
+                                    print('do do bandpass**************************')
                                 sac.filter(para['filterName'],\
                                     freqmin=para['freq'][0], freqmax=para['freq'][1], \
                                     corners=para['corners'], zerophase=para['zerophase'])

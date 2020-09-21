@@ -218,13 +218,13 @@ class config:
                     quake = quakesRef[index]
                 else:
                     continue
-            sacsL = quake.getSacFiles(stations,isRead = True,strL='ZNE',\
+            sacsL = quake.getSacFiles(stations,isRead = True,strL='Z',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
-                remove_resp=remove_resp,para=self.para0)
+                remove_resp=remove_resp,para=self.para0,isSave=False,isSkip=True)
             #print('###',sacsL)
-            sacNamesL = quake.getSacFiles(stations,isRead = False,strL='ZNE',\
+            sacNamesL = quake.getSacFiles(stations,isRead = False,strL='Z',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
-                remove_resp=remove_resp,para=self.para0)
+                remove_resp=remove_resp,para=self.para0,isSave=False,isSkip=True)
             if self.isFromO:
                 for sacs in sacsL:
                     sacs[0] = seism.sacFromO(sacs[0])
@@ -312,7 +312,9 @@ class config:
     def loadNEFV(self,stations,fvDir='models/NEFV'):
         fvD = {}
         fvFileD ={}
-        fvFileL = glob('%s/*.dat'%(fvDir))
+        fvFileL = glob('%s/*avgpvt'%(fvDir))
+        if len(fvFileL)==0:
+            fvFileL = glob('%s/*.dat'%(fvDir))
         #'JL.CBT_NM.MDG-avgpvt.dat'
         for fvFile in fvFileL:
             key = os.path.basename(fvFile).split('-')[0]
@@ -337,8 +339,21 @@ class config:
                     stations[i]['sta'],stations[j]['sta']))
                 #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
                 if len(file)==1:
-                    print(file[0])
+                    #print(file[0])
                     getFVFromPairFile(file[0],fvD,quakeD)
+                else: 
+                    file = glob('%s/???%s/*_*%s/Rayleigh/pvt.dat'%(quakeFvDir,\
+                     stations[i]['sta'],stations[j]['sta']))
+                    if len(file)==1:
+                        #print(file[0])
+                        getFVFromPairFile(file[0],fvD,quakeD)
+                    else:
+                        print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
+                        file = glob('%s/*.%s_*.%s-pvt*'%(quakeFvDir,\
+                            stations[i]['sta'],stations[j]['sta']))
+                        if len(file)==1:
+                            #print(file[0])
+                            getFVFromPairFile(file[0],fvD,quakeD)
         return fvD,seism.QuakeL([quakeD[key] for key in quakeD])
 
 
@@ -997,17 +1012,25 @@ class fv:
                     if len(self.std)>0:
                         std = self.std[i]
                     f.write('%f %f %f'%(T,v,std))
-
+    def update(self,self1):
+        v = self1(self.f)
+        self.f = self.f[v>0.1]
+        self.v = self.v[v>0.1]
+        self.interp = self.genInterp()
 
 
 def getFVFromPairFile(file,fvD={},quakeD={}):
     with open(file) as f :
         lines = f.readlines()
     stat='next'
-    staDir = file.split('/')[-3]
+    #staDir = file.split('/')[-3]
+    staDir = file.split('/')[-1].split('-')[0]
     pairKey = staDir
     for line in lines:
-        print(stat)
+        #print(stat)
+        if len(line.split())==0:
+            print(file,line)
+            continue
         if stat=='next':
             sta0 = line.split()[0]
             sta1 = line.split()[1]
@@ -1058,12 +1081,17 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
             continue
         if stat== 'fNum':
             fNum = int(line.split()[1])
+            if fNum == 0:
+                stat='next'
+                continue
             f = np.zeros(fNum)
             v = np.zeros(fNum)
             stat= 'f'
             i =0
             continue
+
         if stat=='f':
+            #print(line,fNum)
             f[i]=float(line)
             i+=1
             if i ==fNum:
@@ -1088,9 +1116,12 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
                 if name not in quakeD:
                     quakeD[name]=quake
                 key='%s_%s'%(name,pairKey)
+                if len(f)<2:
+                    continue
                 fvD[key]=fv([f,v])
                 
                 continue
+        print(len(quakeD.keys()))
 
 def averageFVL(fvL):
     fL =[]
@@ -1138,6 +1169,17 @@ def fvD2fvL(fvD,stations,f):
 
     return indexL, vL
 
+def replaceByAv(fvD,fvDAv):
+    for modelName in fvD:
+        if len(modelName.split('_'))>=2:
+            name0 = modelName.split('_')[-2]
+            name1 = modelName.split('_')[-1]
+            modelName0 ='%s_%s'%(name0,name1)
+            modelName1 ='%s_%s'%(name1,name0)
+        if modelName0 in fvDAv:
+            fvD[modelName].update(fvDAv[modelName0])
+        if modelName1 in fvDAv:
+            fvD[modelName].update(fvDAv[modelName1])
 
 
 
@@ -1321,12 +1363,12 @@ class corr:
     def compareSpec(self,N=40):
         spec0 = self.toFew(np.abs(np.fft.fft(self.x0)),N)
         spec1 = self.toFew(np.abs(np.fft.fft(self.x1)),N)
-        midN = max(1,int(0.03*N))
+        midN = max(1,int(0.01*N))
         spec0Low  = spec0[:midN].max()
         spec1Low  = spec1[:midN].max()
         spec0High = spec0[midN:-midN].max()
         spec1High = spec1[midN:-midN].max()
-        if spec0Low>spec0High*0.5 or spec1Low>spec1High*0.5:
+        if spec0Low>spec0High*1000 or spec1Low>spec1High*1000:
             return 0
         return (spec0*spec1).sum()
     def toFew(self,spec, N=20):
@@ -1384,6 +1426,10 @@ class corrL(list):
                         modelName1 ='%s_%s'%(name1,name0)
                         if modelName0 not in fvD and modelName1 not in fvD:
                             continue
+                if "specThreshold" in kwargs:
+                    if tmp.compareSpec(N=40)< kwargs['specThreshold']:
+                        print('not match')
+                        continue
                 self.append(tmp)
         self.iL=np.arange(0)
         self.timeDisArgv = ()
@@ -1404,15 +1450,22 @@ class corrL(list):
                 return False
 
         return self.checkNorm(new)
-    def checkNorm(self,new,timeMax=3000,threshold=1):
-        delta = new.timeL[1] - new.timeL[0]
-        i0 = max(1,int((0-new.timeL[0])/delta))
-        i1 = min(new.xx.shape[0]-1,int((3000-new.timeL[0])/delta))
-        if np.real(new.xx[i1:]).max()>np.real(new.xx[i0:i1]).max()*threshold:
+    def checkNorm(self,new,timeMax=5000,threshold=1,minA=0):
+        xx = np.real(new.xx)
+        dDis =np.abs(new.dis[0]-new.dis[1])
+        timeEnd = dDis/2
+        i0 = int((timeEnd-new.timeL[0])/(new.timeL[1]-new.timeL[0]))
+        xxAf = xx[i0:]
+        std = xxAf[np.abs(xxAf)>1e-15].std()
+        A = xx.max()
+        if A/std < minA:
             return False
-        else:
-            return True
-
+        index = xx.argmax()
+        time = new.timeL[index]
+        v = dDis/time
+        #if  v < 0.00001:
+        #    return False
+        return True
     def append(self,new):
         if self.checkIn(new):
             if not isinstance(new, corr):
@@ -1655,8 +1708,6 @@ class corrL(list):
             if len(vIndex)==0:
                 continue
             with open(file,'a') as f:
-                
-
                 f.write('%s %s\n'%(station0['sta'],station1['sta']))
                 f.write('%s 5\n'%(station0['comp'][-1]))
                 f.write(obspy.UTCDateTime(time).strftime('%Y %m %d %H %M %S\n'))
@@ -1725,7 +1776,7 @@ class corrL(list):
                     plt.plot(v[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
             plt.xlim([2,7])
             plt.gca().semilogy()
-            plt.xlabel('v/(m/s)')
+            plt.xlabel('v/(km/s)')
             plt.ylabel('f/Hz')
             plt.savefig(fileName+'.jpg',dpi=300)
             plt.close()
@@ -1737,7 +1788,7 @@ class corrL(list):
                     iL = np.array(iL).astype(np.int)
                     plt.plot(dvO[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
             plt.xlim([-1,1])
-            plt.xlabel('dv/(m/s)')
+            plt.xlabel('dv/(km/s)')
             plt.ylabel('f/Hz')
             plt.gca().semilogy()
             plt.savefig(fileName+'_dv.jpg',dpi=300)
@@ -1784,7 +1835,10 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     ,dep = 10,modelFile='',srcSac='',minSNR=5,isCut=False,\
     maxDist=1e8,minDist=0,maxDDist=1e8,minDDist=0,isFromO = False,\
     removeP=False,isLoadFv=False,fvD={},quakeName='',isByQuake=False,\
-    specN = 40,specThreshold=0.5,isDisp=False):#specThreshold=0.8
+    specN = 40,specThreshold=0.1,isDisp=False):#specThreshold=0.8
+    if len(sacsL)!=len(sacNamesL):
+        print('#####################################not right')
+        return []
     if removeP:
         print('removeP')
     corrL = []
@@ -1890,8 +1944,8 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                 if np.random.rand()<0.01:
                     print(disDegree(minDis,maxD=maxD,maxTheta=maxTheta),\
                         disDegree(dis01,maxD=maxD,maxTheta=maxTheta))
-                thetaE = max(5,disDegree(minDis,maxD=maxD,maxTheta=maxTheta))#3,10
-                theta01= max(5,disDegree(dis01,maxD=maxD,maxTheta=maxTheta))#3,10
+                thetaE = max(10,disDegree(minDis,maxD=maxD,maxTheta=maxTheta))#3,10
+                theta01= max(10,disDegree(dis01,maxD=maxD,maxTheta=maxTheta))#3,10
                 if np.abs((az[0]-az[1]+thetaE)%360)>2*thetaE:
                     continue
                 if np.abs((baz0-az01+theta01)%360)>2*theta01:
@@ -1916,7 +1970,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             if corr.compareSpec(N=specN)>specThreshold:
                 corrL.append(corr)
             else:
-                print(corr.compareSpec(N=specN))
+                print('no match ',corr.compareSpec(N=specN))
     return corrL        
 
 

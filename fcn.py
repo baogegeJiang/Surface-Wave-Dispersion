@@ -1,18 +1,53 @@
-from keras.models import  Model
-from keras.layers import Input, Softmax, MaxPooling2D,\
-  AveragePooling2D,Conv2D,Conv2DTranspose,concatenate,Softmax,\
+from tensorflow import keras
+from tensorflow.keras.models import  Model
+from tensorflow.keras.layers import Input, MaxPooling2D,\
+  AveragePooling2D,Conv2D,Conv2DTranspose,concatenate,\
   Dropout,BatchNormalization, Dense
+from tensorflow.python.keras.layers import Layer, Lambda
+from tensorflow.python.keras import initializers, regularizers, constraints, activations
+#LayerNormalization = keras.layers.BatchNormalization
 import numpy as np
-from keras import backend as K
+from tensorflow.keras import backend as K
 from matplotlib import pyplot as plt   
-from keras.layers import Activation
-from keras.utils.generic_utils import get_custom_objects
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.utils import get_custom_objects
 import random
 import obspy
 import time
 from mathFunc import findPos
 import os
-from keras.utils import plot_model
+from tensorflow.keras.utils import plot_model
+class LayerNormalization(Layer):
+    """Layer Normalization Layer.
+    
+    # References
+        [Layer Normalization](http://arxiv.org/abs/1607.06450)
+    """
+    def __init__(self, eps=1e-6, **kwargs):
+        super(LayerNormalization, self).__init__(**kwargs)
+        self.eps = eps
+    
+    def build(self, input_shape):
+        self.gamma = self.add_weight(name='gamma', shape=input_shape[-1:],
+                                     initializer=initializers.Ones(), trainable=True)
+        self.beta = self.add_weight(name='beta', shape=input_shape[-1:],
+                                    initializer=initializers.Zeros(), trainable=True)
+        super(LayerNormalization, self).build(input_shape)
+    
+    def call(self, x):
+        mean = K.mean(x, axis=-1, keepdims=True)
+        std = K.std(x, axis=-1, keepdims=True)
+        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+    
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = super(LayerNormalization, self).get_config()
+        config.update({
+            'eps': self.eps,
+        })
+        return config
 
 #默认是float32位的网络
 def swish(inputs):
@@ -229,7 +264,7 @@ def inAndOutFuncNewV2(config):
                 jj   = config.dropOutL.index(j)
                 dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
             else:
-                dConvL[j] = BatchNormalization(axis=3,trainable=True)(dConvL[j])
+                dConvL[j] = BatchNormalization(axis=BNA,trainable=True)(dConvL[j])
             convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
         
     outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),\
@@ -242,6 +277,7 @@ def inAndOutFuncNewV3(config):
     convL   = [None for i in range(depth+1)]
     dConvL  = [None for i in range(depth+1)]
     last    = inputs
+    BNA=-1
     for i in range(depth):
         if i <4:
             name = 'conv'
@@ -254,7 +290,7 @@ def inAndOutFuncNewV3(config):
             kernel_initializer=config.initializerL[i],\
             bias_initializer=config.bias_initializerL[i])(last)
 
-        last = BatchNormalization(axis=3,trainable=True)(last)
+        last = BatchNormalization(axis=BNA,trainable=True)(last)
 
         last = Activation(config.activationL[i])(last)
 
@@ -296,7 +332,7 @@ def inAndOutFuncNewV3(config):
                 jj   = config.dropOutL.index(j)
                 dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
             else:
-                dConvL[j] = BatchNormalization(axis=3,trainable=True)(dConvL[j])
+                dConvL[j] = BatchNormalization(axis=BNA,trainable=True)(dConvL[j])
 
             dConvL[j] = Activation(config.activationL[j])(dConvL[j])
 
@@ -307,6 +343,7 @@ def inAndOutFuncNewV3(config):
     return inputs,outputs
 
 def inAndOutFuncNewV4(config, onlyLevel=-10000):
+    BNA = 3
     inputs  = Input(config.inputSize,name='inputs')
     depth   =  len(config.featureL)
     convL   = [None for i in range(depth+1)]
@@ -324,7 +361,7 @@ def inAndOutFuncNewV4(config, onlyLevel=-10000):
             kernel_initializer=config.initializerL[i],\
             bias_initializer=config.bias_initializerL[i])(last)
 
-        last = BatchNormalization(axis=3,trainable=True,name='BN'+layerStr+'0')(last)
+        last = BatchNormalization(axis=BNA,trainable=True,name='BN'+layerStr+'0')(last)
 
         last = Activation(config.activationL[i],name='AC'+layerStr+'0')(last)
 
@@ -339,7 +376,7 @@ def inAndOutFuncNewV4(config, onlyLevel=-10000):
             ii   = config.dropOutL.index(i)
             last =  Dropout(config.dropOutRateL[ii],name='Dropout'+layerStr+'0')(last)
         else:
-            last = BatchNormalization(axis=3,trainable=True,name='BN'+layerStr+'1')(last)
+            last = BatchNormalization(axis=BNA,trainable=True,name='BN'+layerStr+'1')(last)
 
         last = Activation(config.activationL[i],name='AC'+layerStr+'1')(last)
 
@@ -367,7 +404,88 @@ def inAndOutFuncNewV4(config, onlyLevel=-10000):
                 jj   = config.dropOutL.index(j)
                 dConvL[j] =  Dropout(config.dropOutRateL[jj],name='Dropout_'+layerStr+'0')(dConvL[j])
             else:
-                dConvL[j] = BatchNormalization(axis=3,trainable=True,name='BN_'+layerStr+'0')(dConvL[j])
+                dConvL[j] = BatchNormalization(axis=BNA,trainable=True,name='BN_'+layerStr+'0')(dConvL[j])
+
+            dConvL[j] = Activation(config.activationL[j],name='Ac_'+layerStr+'0')(dConvL[j])
+            convL[j]  = concatenate([dConvL[j],convL[j]],axis=BNA,name='conc_'+layerStr+'0')
+            if i <config.deepLevel and j==0:
+                #outputsL.append(Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
+                #padding='same',activation='sigmoid',name='dconv_out_%d'%i)(convL[0]))
+                outputsL.append(Dense(config.outputSize[-1], activation='sigmoid'\
+                    ,name='dense_out_%d'%i)(convL[0]))
+        
+    #outputs = Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
+    #    padding='same',activation='sigmoid',name='dconv_out')(convL[0])
+    if len(outputsL)>1:
+        outputs = concatenate(outputsL,axis=2,name='lastConc')
+    else:
+        outputs = outputsL[-1]
+    if onlyLevel>-100:
+        outputs = outputsL[onlyLevel]
+    return inputs,outputs
+
+def inAndOutFuncNewV5(config, onlyLevel=-10000):
+    inputs  = Input(config.inputSize,name='inputs')
+    depth   =  len(config.featureL)
+    convL   = [None for i in range(depth+1)]
+    dConvL  = [None for i in range(depth+1)]
+    last    = inputs
+    for i in range(depth):
+        if i <4:
+            name = 'conv'
+        else:
+            name = 'CONV'
+        layerStr='_%d_'%i
+        
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'0',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        last = LayerNormalization(trainable=True,name='LN'+layerStr+'0')(last)
+
+        last = Activation(config.activationL[i],name='AC'+layerStr+'0')(last)
+
+        convL[i] =last
+
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'1',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        if i in config.dropOutL:
+            ii   = config.dropOutL.index(i)
+            last =  Dropout(config.dropOutRateL[ii],name='Dropout'+layerStr+'0')(last)
+        else:
+            last = LayerNormalization(trainable=True,name='LN'+layerStr+'1')(last)
+
+        last = Activation(config.activationL[i],name='AC'+layerStr+'1')(last)
+
+        last = config.poolL[i](pool_size=config.strideL[i],\
+            strides=config.strideL[i],padding='same',name='PL'+layerStr+'0')(last)
+
+    convL[depth] =last
+    outputsL =[]
+    for i in range(depth-1,-1,-1):
+        if i <3:
+            name = 'dconv'
+        else:
+            name = 'DCONV'
+        
+        for j in range(i+1):
+
+            layerStr='_%d_%d'%(i,j)
+
+            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
+            strides=config.strideL[j],padding='same',name=name+layerStr+'0',\
+            kernel_initializer=config.initializerL[j],\
+            bias_initializer=config.bias_initializerL[j])(convL[j+1])
+
+            if j in config.dropOutL:
+                jj   = config.dropOutL.index(j)
+                dConvL[j] =  Dropout(config.dropOutRateL[jj],name='Dropout_'+layerStr+'0')(dConvL[j])
+            else:
+                dConvL[j] = LayerNormalization(trainable=True,name='LN_'+layerStr+'0')(dConvL[j])
 
             dConvL[j] = Activation(config.activationL[j],name='Ac_'+layerStr+'0')(dConvL[j])
             convL[j]  = concatenate([dConvL[j],convL[j]],axis=3,name='conc_'+layerStr+'0')
@@ -386,7 +504,6 @@ def inAndOutFuncNewV4(config, onlyLevel=-10000):
     if onlyLevel>-100:
         outputs = outputsL[onlyLevel]
     return inputs,outputs
-
 class fcnConfig:
     def __init__(self):
         '''
@@ -407,16 +524,17 @@ class fcnConfig:
         #self.featureL      = [50,50,75,75,100,100,125]
         #self.featureL      = [25,25,50,50,75,100,125]
         #self.featureL      = [30,30,50,50,75,125,125]#norm
-        self.featureL      = [30,30,30,50,50,75,100]#few
-        self.featureL      = [30,30,30,40,50,50,75]#few-
+        #self.featureL      = [30,30,30,50,50,75,100]#few
+        #self.featureL      = [30,30,30,40,50,50,75]#few-
         #self.featureL      = [40,40,60,60,80,120,160]#more
         
-        self.featureL      = [40,40,80,80,100,120,160]#more+
-        self.featureL      = [40,60,80,100,120,120,160]#more ++
+        #self.featureL      = [40,40,80,80,100,120,160]#more+
+        self.featureL      = [16,32,64,128,256,256,512]#more ++
+        #self.featureL      = [80,120,160,200,200,250,300]#more +++
         #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
         self.strideL       = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(3,1),\
         (4,1),(2,1),(2,1),(2,1)]
-        self.kernelL       = [(8,1),(8,1),(8,1),(8,1),(8,1),(8,1),(3,1),\
+        self.kernelL       = [(8,1),(8,1),(8,1),(8,1),(8,1),(12,1),(3,1),\
         (8,1),(4,1),(4,1),(4,1)]
         self.initializerL  = ['truncated_normal' for i in range(10)]
         self.initializerL  = ['he_normal' for i in range(10)]
@@ -510,7 +628,7 @@ class model(Model):
         XYT = xyt(x,y,t)
         self.trainByXYT(XYT,**kwarg)
     def trainByXYT(self,XYT,N=2000,perN=200,batchSize=None,xTest='',\
-        yTest='',k0 = 5e-4,t='',count0=3):
+        yTest='',k0 = 4e-3,t='',count0=3):
         if k0>1:
             K.set_value(self.optimizer.lr, k0)
         indexL = range(len(XYT))
@@ -749,9 +867,12 @@ def trainAndTest(model,corrLTrain,corrLValid,corrLTest,outputDir='predict/',tTra
     print(resStr)
     trainTestLossL =[]
     for sigma in sigmaL:
-        model.config.lossFunc.w = w0*(4/sigma)**0.5
+        model.config.lossFunc.w = w0*(1.5/sigma)**0.5
         corrLTrain.timeDisKwarg['sigma']=sigma
         corrLTest.timeDisKwarg['sigma']=sigma
+        corrLValid.timeDisKwarg['sigma']=sigma
+        corrLValid.iL=np.array([])
+        corrLTrain.iL=np.array([])
         corrLTest.iL=np.array([])
         model.compile(loss=model.config.lossFunc, optimizer='Nadam')
         xTest, yTest, tTest =corrLValid(np.arange(len(corrLValid)))
@@ -759,7 +880,7 @@ def trainAndTest(model,corrLTrain,corrLValid,corrLTest,outputDir='predict/',tTra
             count0=count0, perN=perN)
         resStr += resStrTmp
         trainTestLossL.append(trainTestLoss)
-    
+    xTest, yTest, tTest =corrLValid(np.arange(len(corrLValid)))
     yout=model.predict(xTest)  
     for threshold in [0.5,0.7,0.8]:
         corrLValid.plotPickErro(yout,tTrain,fileName=outputDir+'erro_valid.jpg',\

@@ -33,11 +33,86 @@ def xcorrSimple(a,b):
         c[i]=tc
     return c
 
+def xcorrAndDe(a,b):
+    la = a.size
+    lb = b.size
+    lab = min(la,lb)
+    if la!=lab or lb != lab:
+        a = a[:lab]
+        b = b[:lab]
+    A = np.fft.fft(a) 
+    B = np.fft.fft(b)
+    c0 =  signal.correlate(a,b,'full')[lab-1:]
+    absB = np.abs(B)
+    threshold = absB.max()*(1e-13)
+    #c0 = np.real(xcorrFrom0(a,b))
+    #np.real(np.fft.ifft(np.conj(B)*A))
+    C1 = A.copy()
+    C1[absB>threshold]/=C1[absB>threshold]/B[absB>threshold]
+    c1 = np.real(np.fft.ifft(C1))
+    c0 /= c0.max()
+    c1 /= c1.max()
+    return c0+c1*1j
+
+def xcorrAndDeV2(a,b):
+    la = a.size
+    lb = b.size
+    lab = min(la,lb)
+    if la!=lab or lb != lab:
+        a = a[:lab]
+        b = b[:lab]
+    A = np.fft.fft(a) 
+    B = np.fft.fft(b)
+    labMid = int(lab/2)
+    #B[labMid:]= np.conj(B[labMid:])
+    c0 =  signal.correlate(a,b,'full')[lab-1:]
+    absB = np.abs(B)
+    threshold = absB.max()*(1e-13)
+    #c0 = np.real(xcorrFrom0(a,b))
+    #np.real(np.fft.ifft(np.conj(B)*A))
+    C1 = A.copy()
+    C1[absB>threshold]/=B[absB>threshold]
+    C1[absB<=threshold] = 0
+    c1 = np.real(np.fft.ifft(C1))
+    c0 /= c0.max()
+    c1 /= c1.max()
+    return c0+c1*1j
+def xcorrAndDeV3(a,b):
+    la = a.size
+    lb = b.size
+    lab = min(la,lb)
+    if la!=lab or lb != lab:
+        a = a[:lab]
+        b = b[:lab]
+    #a = fftpack.hilbert(a)*1j+a
+    #b = fftpack.hilbert(b)*1j+b
+    A = np.fft.fft(a) 
+    B = np.fft.fft(b)
+    absA = np.abs(A)
+    absB = np.abs(B)
+    thresholdA = absA.std()*(1e-1)
+    thresholdB = absB.std()*(1e-1)
+    C1=np.conj(B)*A
+    #c0 = np.real(xcorrFrom0(a,b))
+    #np.real(np.fft.ifft(np.conj(B)*A))
+    #C1 = A.copy()
+    #C1/=B
+    C1[absA<=thresholdA] = 0
+    C1[absB<=thresholdB] = 0
+    return np.fft.ifft(C1)
+
 def xcorrFrom0(a,b):
     la = a.size
     lb = b.size
     x =  signal.correlate(a,b,'full')
     return x[lb-1:]
+
+def xcorrAndConv(a,b):
+    la = a.size
+    lb = b.size
+    x0 =  signal.correlate(a,b,'full')
+    x1 =  signal.convolve(b,a,'full')
+    return x0[lb-1:]+1j*x1[lb-1:]
 
 
 @jit
