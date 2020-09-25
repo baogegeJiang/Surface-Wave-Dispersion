@@ -8,10 +8,12 @@ class config:
 		'sablayers','minmaxV', 'sparsity','kmaxRc','rcPerid','kmaxRg','rgPeriod',\
 		'kmaxLc','lcPeriod','kmaxLg','lgPeriod','isSyn','noiselevel','threshold',\
 		'vnn']
-		self.para = {'dataFile':name+'in', 'nxyz', 'lalo', 'dlalo', 'maxN','damp',\
-		'sablayers','minmaxV', 'sparsity','kmaxRc','rcPerid','kmaxRg','rgPeriod',\
-		'kmaxLc','lcPeriod','kmaxLg','lgPeriod','isSyn','noiselevel','threshold',\
-		'vnn'}
+		self.para = {'dataFile':name+'in', 'nxyz':[18,18,9], 'lalo':[130,30],\
+		 'dlalo':[0.01,0.01], 'maxN':[20],'damp':[4.0,1.0],\
+		'sablayers':3,'minmaxV':[2,7], 'sparsity':0.2,\
+		'kmaxRc':10,'rcPerid':np.arange(1,11).tolist(),'kmaxRg':0,'rgPeriod':[],\
+		'kmaxLc':0,'lcPeriod':[],'kmaxLg':0,'lgPeriod':[],'isSyn':0,'noiselevel':0.02,'threshold':0.05,\
+		'vnn':[0,100,50]}
 
 class DS:
 	"""docstring for ClassName"""

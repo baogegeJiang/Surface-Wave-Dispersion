@@ -404,45 +404,57 @@ para={'freq'      :[1/6],'filterName':'lowpass'}
 config=d.config(originName='models/prem',srcSacDir=srcSacDir,\
         distance=np.arange(500,10000,300),srcSacNum=100,delta=1,layerN=20,\
         layerMode='prem',getMode = 'new',surfaceMode='PSV',nperseg=200,\
-        noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrAndDe],\
+        noverlap=196,halfDt=300,xcorrFuncL = [mathFunc.xcorrFrom0],\
         isFlat=True,R=6371,flatM=-2,pog='p',calMode='gpdc',\
         T=T,threshold=0.02,expnt=12,dk=0.05,\
         fok='/k',order=0,minSNR=10,isCut=False,\
-        minDist=110*10,maxDist=110*170,minDDist=300,\
+        minDist=110*10,maxDist=110*170,minDDist=200,\
         maxDDist=10000,para=para,isFromO=True,removeP=True)
 
-quakes = seism.QuakeL('phaseLCEAV2_more')
+quakes = seism.QuakeL('phaseLPickCEA')
 
 stationsCEA = seism.StationList('stations/CEA.sta_sel')
-stationsCEA.set('oRemove',False)#True
+stationsCEA.set('oRemove',True)#True
 stationsNE = seism.StationList('stations/NEsta_all.locSensorDas')
 stationsNE.set('oRemove',False)
 stations = stationsCEA#+stationsNE
 stations.getInventory()
 random.shuffle(quakes)
 #stations.getSensorDas()
-
-fvDAvarageCEA = config.loadNEFV(stationsCEA,fvDir='models/Curves')
-fvDAvarageNE = config.loadNEFV(stationsNE)
+#fvNED.update(fvDAvarageCEA)
+#fvDAvarageNE = config.loadNEFV(stationsNE)
+fvDAvarageCEA = d.config().loadNEFV(stationsCEA,fvDir='models/ayu/Pairs_avgpvt/')
+fvNED,quakes0 = d.config().loadQuakeNEFV(stations,quakeFvDir='models/ayu/Pairs_pvt/')
+quakes = quakes0
 fvDAvarage = {}
-fvDAvarage.update(fvDAvarageCEA)
-fvDAvarage.update(fvDAvarageNE)
+d.replaceByAv(fvNED,fvDAvarageCEA)
+fvDAvarage.update(fvNED)
+#fvDAvarage.update(fvDAvarageNE)
 fvDAvarage['models/prem']=d.fv('models/prem_fv_flat_new_p_0','file')
-SNR = 6#12
+SNR = 0#12
+'''
 corrLQuakeP0=config.quakeCorr(quakes,stations,\
     byRecord=False,remove_resp=True,minSNR=SNR,isLoadFv=True,\
-    fvD=fvDAvarage,isByQuake=False,para={\
+    fvD=fvDAvarage,isByQuake=True,para={\
     'pre_filt': (1/400, 1/300, 1/2, 1/1.5),\
-        'output':'VEL','freq':[1/150, 1/6],'filterName':'bandpass',\
-        'toDisp':True})
-corrLQuakeP = d.corrL(corrLQuakeP0)
-
+        'output':'VEL','freq':[1/300, 1/5],'filterName':'bandpass',\
+        'corners':4,'toDisp':False,'zerophase':True,'maxA':1e15})
+'''
+corrLQuakeP0=config.quakeCorr(quakes,stations,\
+    byRecord=False,remove_resp=True,minSNR=SNR,isLoadFv=False,\
+    fvD=fvDAvarage,isByQuake=True,para={\
+    'pre_filt': (1/400, 1/300, 1/2, 1/1.5),\
+        'output':'VEL','freq':[1/300, 1/5],'filterName':'bandpass',\
+        'corners':4,'toDisp':False,'zerophase':True,'maxA':1e15})
+corrLQuakeP0 = d.corrL(corrLQuakeP0,maxCount=4096*3)
+corrLQuakeP = d.corrL(corrLQuakeP0,maxCount=4096*3,fvD=fvNED)
+#corrLQuakeP = d.corrL(corrLQuakeP)
 #考虑取出其中的一些地震，避免数据泄露
-fvL = [key for key in fvDAvarage]
+fvL = [key for key in fvDAvarageCEA]
 random.shuffle(fvL)
-fvTrain = fvL[500:]
-fvTest = fvL[250:500]
-fvVaild = fvL[:250]
+fvTrain = fvL[100:]
+fvTest = fvL[50:100]
+fvVaild = fvL[:50]
 specThreshold = 0.0
 corrLQuakePTrain = d.corrL(corrLQuakeP,specThreshold=specThreshold,fvD=fvTrain)
 corrLQuakePTest  = d.corrL(corrLQuakeP,specThreshold=specThreshold,fvD=fvTest)
@@ -454,24 +466,27 @@ corrLQuakePValid = d.corrL(corrLQuakeP,specThreshold=specThreshold,fvD=fvVaild)
 #random.shuffle(corrLQuakePTest)
 tTrain = (10**np.arange(0,1.000001,1/49))*12
 corrLQuakePTrain.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
-byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=False,\
 set2One=True,move2Int=False)
 corrLQuakePValid.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
-byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=False,\
 set2One=True,move2Int=False)
 corrLQuakePTest.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
-byT=False,noiseMul=0.0,byA=True,rThreshold=0.05,byAverage=True,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=False,\
 set2One=True,move2Int=False)#0.05
-modelP = fcn.model(channelList=[0,1,2,3])
+modelP = fcn.model(channelList=[0,2,3])
 fcn.trainAndTest(modelP,corrLQuakePTrain,corrLQuakePValid,corrLQuakePTest,\
-    outputDir='predict/0911-18_17_Disp_w0=1_rT=0.1_level=2_set2One_more++++_SNR8_dense_CEADis_pair_120_minDD=300_specCompare=0.0_best_layer/CEA_P_',\
-    sigmaL=[1.5],tTrain=tTrain,perN=200,count0=3,w0=1)#w0=2
+    outputDir='predict/0925byQuake_dense+++_1-300_1-5_allllRecord_w4_L7_count05/CEA_P_',\
+    sigmaL=[1.5],tTrain=tTrain,perN=200,count0=5,w0=4)#w0=2
 
-corrLQuakeP.setTimeDis(fvDAvarage,tTrain,sigma=2,maxCount=4096*3,\
-byT=False,noiseMul=0.0,byA=True,rThreshold=0.075,byAverage=True,\
+corrLQuakeP0 = d.corrL(corrLQuakeP0,maxCount=4096*3)
+corrLQuakeP0.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=True,\
 set2One=True,move2Int=False,modelNameO='models/prem')
-corrLQuakeP.getAndSave(modelP,'predict/v7/CEA_P_',stations\
+corrLQuakeP0.getAndSave(modelP,'predict/v12ByQuake/CEA_P_',stations\
     ,isPlot=True,isLimit=True,isSimple=False)
+fvNEDGet,quakesGet = d.config().loadQuakeNEFV(stationsCEA,quakeFvDir='predict/v12ByQuake/',D=0.15)
+
 '''
 handle some preparation
 respDirs = ['resp/RESP/','resp/RESP_old']
@@ -531,6 +546,10 @@ stations.write('stations/CEA.sta_sel')
 '''
 
 '''
+1800*1.5=2700
+差距大的扔掉
+然后重新计算均值
+可以比单个的更加接近
 list 记顺序
 dictionary 存内容
 
@@ -580,7 +599,9 @@ phaseLCEAV1_more 后255个无地震
 是否需要去除仪器响应？
 研究初始化问题，如何保证收敛
 利用姚老师的方法
+台站距离
 看残差大小
+
 是否可以继续上采样，寻找可能的超分辨率？
 虽然加入了训练系统，但是部分频段仍然未被标注，也可以用于拾取
 如何从predicate 结果中选取有用的
@@ -620,15 +641,15 @@ quakes.write('phaseLCEAV2_more')
 
 #cut sacs for quake
 import seism
-import dispersion as d 
+#import dispersion as d 
 #quakes  = seism.QuakeL('phaseLCEAV2_more')
 #quakes  = seism.QuakeL('phaseLPick')
 stations = seism.StationList('stations/CEA.sta_sel')
-#fvNED,quakes0 = d.config().loadQuakeNEFV(stations,quakeFvDir='models/pairs/')
+#fvNED,quakes0 = d.config().loadQuakeNEFV(stations,quakeFvDir='models/ayu/Pairs_pvt/')
 #quakes0=seism.QuakeL(quakes0)
-quakes0.write('phaseLPickCEA')
+#quakes0.write('phaseLPickCEA')
 #+seism.StationList('stations/NEsta_all.locSensorDas')
-
+quakes  = seism.QuakeL('phaseLPickCEA')
 
 para={\
 'delta0' :1,
@@ -638,7 +659,7 @@ para={\
 }
 
 quakes.cutSac(stations,bTime=-1500,eTime =12300,\
-    para=para,byRecord=False,isSkip=False)
+    para=para,byRecord=False,isSkip=True)
 
 #stations = seism.StationList('stations/NEsta_all.locSensorDas')
 stations = seism.StationList('stations/CEA.sta_sel')
@@ -734,3 +755,36 @@ for i in range(loopN):
     S =x[:,:,:,[0,2,3]].std(axis=1)
     if (S==0).sum()>0:
         print(np.where(S==0))
+
+import seism
+from glob import glob
+import os 
+import obspy
+stations = seism.StationList('stations/CEA.sta')
+YMDL=glob('/media/jiangyr/CEA/CEA_1s/old/old/????????/')
+
+for YMD in YMDL:
+    strT=YMD.split('/')[-2]
+    time = obspy.UTCDateTime(strT)
+    YJ   = time.strftime('%Y/%j/')
+    for station in stations:
+        net = station['net']
+        sta = station['sta']
+        tmpDistDir = '/net/CEA/CEA1s/CEA_old/%s/%s/%s/'%(net,sta,YJ)
+        if not os.path.exists(tmpDistDir):
+            mkdir = 'echo a314349798 | sudo mkdir -p %s'%(tmpDistDir)
+            os.system(mkdir)
+        if len(glob('%s/%s*%s*'%(YMD,sta,net)))>0:
+            cmd = 'echo a314349798 | sudo cp -n %s/%s*%s* %s/'%(YMD,sta,net,tmpDistDir)
+            os.system(cmd)
+            print(cmd)
+from glob import glob
+from obspy import UTCDateTime
+i =0 
+for quake in quakes0:
+    resDir = '%s/%s/*BHZ'%('eventSac',quake.name('_'))
+    if len(glob(resDir))==0:
+        i+=1
+        print(UTCDateTime(quake['time']),i)
+        #if os.path.exists(os.path.dirname(resDir)):
+        #    os.system('rm -r %s'%os.path.dirname(resDir))

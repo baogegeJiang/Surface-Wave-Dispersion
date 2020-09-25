@@ -73,9 +73,13 @@ class filePath:
             pattern = '%s/%s/%s.%s.*%s.sac'%(staDir,time.strftime('%Y/R%j'),sta,\
                 time.strftime('%Y.%j'),comp)
         elif nameMode == 'CEA':
+            if True:
+                time = time+8*3600
+                pattern = '%s/%s/%s*%s.sac'%(staDir,time.strftime('%Y/%j'),sta,comp)
+            else:
             #staDir/2009/R304/NE67.2009.304.00.00.00.BHZ.sac
             #2010/001/ANQ.2009365160003.AH.00.D.BHN.sac
-            pattern = '%s/%s/%s*%s.sac'%(staDir,time.strftime('%Y/%j'),sta,comp)
+                pattern = '%s/%s/%s*%s.sac'%(staDir,time.strftime('%Y/%j'),sta,comp)
         #print('##',pattern)
         return glob(pattern)
     def getStaDirL(self,net,sta,nameMode=''):
@@ -89,7 +93,7 @@ class filePath:
         if nameMode == 'YP':
             staDirL = ['/media/commonMount/data2/NECESSARRAY_SAC/NEdata*/%s/'%sta]
         if nameMode == 'CEA':
-            staDirL = ['/media/jiangyr/shanxidata21/CEA/%s/%s/'%(net,sta)]
+            staDirL = ['/net/CEA/CEA1s/CEA/%s/%s/'%(net,sta),'/net/CEA/CEA1s/CEA_old/%s/%s/'%(net,sta)]
         staName = net + ' ' + sta
         if staName in self.himaDir:
             staDirL = self.himaDir[staName]

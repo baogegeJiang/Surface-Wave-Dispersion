@@ -8,6 +8,7 @@ import os
 import random
 from matplotlib import pyplot as plt
 import time
+from glob import glob
 fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
@@ -383,6 +384,10 @@ class Quake(Dist):
     def __str__(self, *argv):
         self['num'] = self.num()
         return super().__str__(*argv )
+    def __lt__(self,self1):
+        return self['time']<self1['time']
+    def __eq__(self,self1):
+        return self['time']==self1['time']
     def staIndexs(self):
         return [record['staIndex'] for record in self.records]
     def resDir(self,resDir):
@@ -391,6 +396,7 @@ class Quake(Dist):
         time0  = self['time'] + bTime
         time1  = self['time'] + eTime
         tmpDir = self.resDir(resDir)
+        #print(tmpDir)
         if not os.path.exists(tmpDir):
             os.makedirs(tmpDir)
         staIndexs = self.staIndexs()
@@ -406,9 +412,10 @@ class Quake(Dist):
                 if not os.path.exists(resSacName):
                     isF = False
             if isF and isSkip:
-                print(resSacNames,'done')
+                #print(resSacNames,'done')
                 continue
             sacsL = station.getFileNames(time0,time1+2)
+            #print(sacsL)
             for i in range(3):
                 sacs = sacsL[i]
                 if len(sacs) ==0:
@@ -419,6 +426,8 @@ class Quake(Dist):
                 data.data -= data.data.mean()
                 data.detrend()
                 #print(data)
+                #print(data.stats.starttime.timestamp-time0,\
+                #    data.stats.endtime.timestamp-time1)
                 if data.stats.starttime<=time0 and data.stats.endtime >= time1:
                     data=data.slice(starttime=UTCDateTime(time0), \
                         endtime=UTCDateTime(time1), nearest_sample=True)
@@ -437,6 +446,7 @@ class Quake(Dist):
                     data=adjust(data,decMul=decMul,stloc=station.loc(),eloc = self.loc(),\
                         kzTime=self['time'],sta = station['sta'],net=station['net'])
                     data.write(resSacNames[i],format='SAC')
+        print(tmpDir,len(glob(tmpDir+'/*Z')))
         return None
     def getSacFiles(self,stations,isRead=False,resDir = 'eventSac/',strL='ENZ',\
         byRecord=True,maxDist=-1,minDist=-1,remove_resp=False,isPlot=False,\

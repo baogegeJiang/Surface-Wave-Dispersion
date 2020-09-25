@@ -504,6 +504,95 @@ def inAndOutFuncNewV5(config, onlyLevel=-10000):
     if onlyLevel>-100:
         outputs = outputsL[onlyLevel]
     return inputs,outputs
+
+def inAndOutFuncNewV6(config, onlyLevel=-10000):
+    BNA = -1
+    inputs  = Input(config.inputSize,name='inputs')
+    depth   =  len(config.featureL)
+    convL   = [None for i in range(depth+1)]
+    dConvL  = [None for i in range(depth+1)]
+    last    = inputs
+    for i in range(depth):
+        if i <4:
+            name = 'conv'
+        else:
+            name = 'CONV'
+        layerStr='_%d_'%i
+        
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'0',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        last = BatchNormalization(axis=BNA,trainable=True,name='BN'+layerStr+'0')(last)
+
+        last = Activation(config.activationL[i],name='AC'+layerStr+'0')(last)
+
+        convL[i] =last
+
+        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
+            strides=(1,1),padding='same',name=name+layerStr+'1',\
+            kernel_initializer=config.initializerL[i],\
+            bias_initializer=config.bias_initializerL[i])(last)
+
+        if i in config.dropOutL:
+            ii   = config.dropOutL.index(i)
+            last =  Dropout(config.dropOutRateL[ii],name='Dropout'+layerStr+'0')(last)
+        else:
+            last = BatchNormalization(axis=BNA,trainable=True,name='BN'+layerStr+'1')(last)
+
+        last = Activation(config.activationL[i],name='AC'+layerStr+'1')(last)
+
+        last = config.poolL[i](pool_size=config.strideL[i],\
+            strides=config.strideL[i],padding='same',name='PL'+layerStr+'0')(last)
+
+    convL[depth] =last
+    outputsL =[]
+    for i in range(depth-1,-1,-1):
+        if i <3:
+            name = 'dconv'
+        else:
+            name = 'DCONV'
+        
+        for j in range(i+1):
+
+            layerStr='_%d_%d'%(i,j)
+
+            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
+                strides=config.strideL[j],padding='same',name=name+layerStr+'0',\
+                kernel_initializer=config.initializerL[j],\
+                bias_initializer=config.bias_initializerL[j])(convL[j+1])
+
+            if j in config.dropOutL:
+                jj   = config.dropOutL.index(j)
+                dConvL[j] =  Dropout(config.dropOutRateL[jj],name='Dropout_'+layerStr+'0')(dConvL[j])
+            else:
+                dConvL[j] = BatchNormalization(axis=BNA,trainable=True,name='BN_'+layerStr+'0')(dConvL[j])
+
+            dConvL[j]  = Activation(config.activationL[j],name='Ac_'+layerStr+'0')(dConvL[j])
+            dConvL[j]  = concatenate([dConvL[j],convL[j]],axis=BNA,name='conc_'+layerStr+'0')
+            dConvL[j]  = Conv2D(config.featureL[j],kernel_size=config.kernelL[j],\
+                strides=(1,1),padding='same',name=name+layerStr+'1',\
+                kernel_initializer=config.initializerL[j],\
+                bias_initializer=config.bias_initializerL[j])(dConvL[j])
+            dConvL[j] = BatchNormalization(axis=BNA,trainable=True,name='BN_'+layerStr+'1')(dConvL[j])
+            dConvL[j] = Activation(config.activationL[j],name='Ac_'+layerStr+'1')(dConvL[j])
+            convL[j]  = concatenate([dConvL[j],convL[j]],axis=BNA,name='conc_'+layerStr+'1')
+            if i <config.deepLevel and j==0:
+                #outputsL.append(Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
+                #padding='same',activation='sigmoid',name='dconv_out_%d'%i)(convL[0]))
+                outputsL.append(Dense(config.outputSize[-1], activation='sigmoid'\
+                    ,name='dense_out_%d'%i)(convL[0]))
+        
+    #outputs = Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
+    #    padding='same',activation='sigmoid',name='dconv_out')(convL[0])
+    if len(outputsL)>1:
+        outputs = concatenate(outputsL,axis=2,name='lastConc')
+    else:
+        outputs = outputsL[-1]
+    if onlyLevel>-100:
+        outputs = outputsL[onlyLevel]
+    return inputs,outputs
 class fcnConfig:
     def __init__(self):
         '''
@@ -529,17 +618,25 @@ class fcnConfig:
         #self.featureL      = [40,40,60,60,80,120,160]#more
         
         #self.featureL      = [40,40,80,80,100,120,160]#more+
-        self.featureL      = [16,32,64,128,256,256,512]#more ++
+        #self.featureL      = [16,32,64,128,256,256,512]#more ++
+        self.featureL      = [32,32,64,64,64,128,128]#[8,16,32,64,128,128,256]
+        self.featureL      = [32,32,32,64,64,64,128]
+        self.featureL      = [32,32,32,64,64,64,128]
+        self.featureL      = [24,24,32,48,48,64,128]
+        self.featureL      = [32,32,48,48,64,64,128]
+        self.featureL      = [32,48,48,64,64,96,128]
+        self.featureL      = [32,32,32,32,48,64,96,128]
+        self.featureL      = [32,32,32,48,48,64,128]
         #self.featureL      = [80,120,160,200,200,250,300]#more +++
         #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
-        self.strideL       = [(4,1),(4,1),(4,1),(4,1),(4,1),(4,1),(3,1),\
+        self.strideL       = [(2,1),(4,1),(4,1),(4,1),(4,1),(4,1),(6,1),\
         (4,1),(2,1),(2,1),(2,1)]
-        self.kernelL       = [(8,1),(8,1),(8,1),(8,1),(8,1),(12,1),(3,1),\
+        self.kernelL       = [(6,1),(8,1),(8,1),(8,1),(8,1),(16,1),(6,1),\
         (8,1),(4,1),(4,1),(4,1)]
         self.initializerL  = ['truncated_normal' for i in range(10)]
         self.initializerL  = ['he_normal' for i in range(10)]
-        self.bias_initializerL=['random_normal' for i in range(10)]
-        self.bias_initializerL=['he_normal' for i in range(10)]
+        self.bias_initializerL = ['random_normal' for i in range(10)]
+        self.bias_initializerL = ['he_normal' for i in range(10)]
         #self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
         #self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
         self.dropOutL     =[]# [0,1,2]#[5,6,7]#[1,3,5,7]#[1,3,5,7]
@@ -554,7 +651,7 @@ class fcnConfig:
         AveragePooling2D,MaxPooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
         MaxPooling2D,AveragePooling2D,MaxPooling2D]
         self.lossFunc     = lossFuncSoft(w=10)#10
-        self.inAndOutFunc = inAndOutFuncNewV4
+        self.inAndOutFunc = inAndOutFuncNewV6
         self.deepLevel = 1
     def inAndOut(self,*argv,**kwarg):
         return self.inAndOutFunc(self,*argv,**kwarg)
@@ -599,7 +696,11 @@ class model(Model):
         x = self.inx(x)
         return super().predict(x).astype(np.float16)
     def fit(self,x,y,batchSize=None):
-        return super().fit(self.inx(x) ,y,batch_size=batchSize)
+        x=self.inx(x)
+        if np.isnan(x).sum()>0 or np.isinf(x).sum()>0:
+            print('bad record')
+            return None
+        return super().fit(x ,y,batch_size=batchSize)
     def plot(self,filename='model.png'):
         plot_model(self, to_file=filename)
 

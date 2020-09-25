@@ -3,6 +3,7 @@ from numba import jit,float32, int64
 import scipy.signal  as signal
 from scipy import fftpack
 from scipy.optimize import curve_fit
+from scipy import stats
 nptype=np.float32
 rad2deg=1/np.pi*180
 @jit
@@ -319,3 +320,17 @@ def disDegreeBak(dis,maxD = 100, maxTheta=20):
     theta0 = maxD/110.7
     theta = theta0/np.sin(delta/180*np.pi)
     return min(theta,maxTheta)
+
+def QC(data):
+    if len(data)<5:
+        return data.mean(),999,len(data)
+    if len(data)<10:
+        return data.mean(),data.std(),len(data)
+    mData = np.median(data)
+    d = np.abs(data - mData)
+    lqr = stats.iqr(data)
+    threshold = lqr*1.5
+    if (d>threshold).sum()==0:
+        return data.mean(),data.std(),len(data)
+    else:
+        return QC(data[d<threshold])
