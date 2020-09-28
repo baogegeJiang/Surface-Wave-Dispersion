@@ -431,7 +431,7 @@ d.replaceByAv(fvNED,fvDAvarageCEA)
 fvDAvarage.update(fvNED)
 #fvDAvarage.update(fvDAvarageNE)
 fvDAvarage['models/prem']=d.fv('models/prem_fv_flat_new_p_0','file')
-SNR = 0#12
+SNR = 8#12
 '''
 corrLQuakeP0=config.quakeCorr(quakes,stations,\
     byRecord=False,remove_resp=True,minSNR=SNR,isLoadFv=True,\
@@ -464,7 +464,7 @@ corrLQuakePValid = d.corrL(corrLQuakeP,specThreshold=specThreshold,fvD=fvVaild)
 #random.shuffle(corrLQuakePTrain)
 #random.shuffle(corrLQuakePValid)
 #random.shuffle(corrLQuakePTest)
-tTrain = (10**np.arange(0,1.000001,1/49))*12
+tTrain = (12**np.arange(0,1.000001,1/49))*10
 corrLQuakePTrain.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=False,\
 set2One=True,move2Int=False)
@@ -476,16 +476,61 @@ byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=False,\
 set2One=True,move2Int=False)#0.05
 modelP = fcn.model(channelList=[0,2,3])
 fcn.trainAndTest(modelP,corrLQuakePTrain,corrLQuakePValid,corrLQuakePTest,\
-    outputDir='predict/0925byQuake_dense+++_1-300_1-5_allllRecord_w4_L7_count05/CEA_P_',\
-    sigmaL=[1.5],tTrain=tTrain,perN=200,count0=5,w0=4)#w0=2
+    outputDir='predict/0926byQuake_dense+++_1-300_1-5_allllRecord_w3_L7_count05_SNR8/CEA_P_',\
+    sigmaL=[1.5],tTrain=tTrain,perN=200,count0=5,w0=3)#w0=2
 
 corrLQuakeP0 = d.corrL(corrLQuakeP0,maxCount=4096*3)
+
 corrLQuakeP0.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=True,\
 set2One=True,move2Int=False,modelNameO='models/prem')
-corrLQuakeP0.getAndSave(modelP,'predict/v12ByQuake/CEA_P_',stations\
-    ,isPlot=True,isLimit=True,isSimple=False)
-fvNEDGet,quakesGet = d.config().loadQuakeNEFV(stationsCEA,quakeFvDir='predict/v12ByQuake/',D=0.15)
+
+resDir = 'predict/v20ByQuake/'
+corrLQuakeP0.getAndSave(modelP,'%s/CEA_P_'%resDir,stations\
+    ,isPlot=True,isLimit=True,isSimple=False,D=0.2)
+resDir = 'predict/v20ByQuake/'
+fvNEDGet,quakesGet = d.config().loadQuakeNEFV(stationsCEA,quakeFvDir=resDir)
+fvDAvarageCEA = d.config().loadNEFV(stationsCEA,fvDir='models/ayu/Pairs_avgpvt/')
+fvM=d.fvD2fvM(fvNEDGet,isDouble=True)
+fvAv = d.fvM2Av(fvM)
+fvMean = d.averageFVL([fvAv[key] for key in fvAv])
+fvPrem=d.fv('models/prem_fv_flat_new_p_0','file')
+#d.plotFVM(fvM,fvD=fvAv,resDir='%s/pairRes/'%resDir,isDouble=True)
+
+d.plotFVL(fvAv,fvRef=fvPrem,filename='%s/pairRes/pair.jpg'%resDir)
+for fv in fvAv:
+    fvAv[fv].qc()
+
+len(fvAv)
+d.plotFVL(fvAv,fvRef=fvPrem,filename='%s/pairRes/paris_qc.jpg'%resDir)
+d.compareFvD(fvAv,fvDAvarageCEA,resDir='%s/pairRes/paris_qc/'%resDir)
+d.qcFvD(fvAv)
+f = 1/tTrain
+
+
+indexL,vL = d.fvD2fvL(fvAv,stations,f)
+import DSur
+surPara={ 'nxyz':[32,48,8], 'lalo':[54,110],\
+         'dlalo':[0.6,0.6], 'maxN':[43],\
+        'kmaxRc':50,'rcPerid':tTrain.tolist(),'threshold':0.05,\
+        'vnn':[0,100,50],'maxIT':30}
+DSConfig = DSur.config(para=surPara)
+DS = DSur.DS(config=DSConfig)
+DS.test(vL,indexL,stations)
+DSModel = DS.loadRes()
+DSModel.plotByZ()
+############
+indexL,vL = d.fvD2fvL(fvDAvarageCEA,stations,f)
+import DSur
+surPara={ 'nxyz':[32,48,16], 'lalo':[60,105],\
+         'dlalo':[1,1], 'maxN':[43],\
+        'kmaxRc':50,'rcPerid':tTrain.tolist(),'threshold':0.01,\
+        'vnn':[0,100,50],'maxIT':15}
+DSConfig = DSur.config(para=surPara,z=[0,10,20,30,40,50,60,70,80,90,100,120,160,200,250,300])
+DS = DSur.DS(config=DSConfig)
+DS.test(vL,indexL,stations)
+DSModel = DS.loadRes()
+DSModel.plotByZ()
 
 '''
 handle some preparation
@@ -546,6 +591,7 @@ stations.write('stations/CEA.sta_sel')
 '''
 
 '''
+是否需要质量控制？
 1800*1.5=2700
 差距大的扔掉
 然后重新计算均值
@@ -644,12 +690,12 @@ import seism
 #import dispersion as d 
 #quakes  = seism.QuakeL('phaseLCEAV2_more')
 #quakes  = seism.QuakeL('phaseLPick')
-stations = seism.StationList('stations/CEA.sta_sel')
+#stations = seism.StationList('stations/CEA.sta_sel')
 #fvNED,quakes0 = d.config().loadQuakeNEFV(stations,quakeFvDir='models/ayu/Pairs_pvt/')
 #quakes0=seism.QuakeL(quakes0)
 #quakes0.write('phaseLPickCEA')
 #+seism.StationList('stations/NEsta_all.locSensorDas')
-quakes  = seism.QuakeL('phaseLPickCEA')
+#quakes  = seism.QuakeL('phaseLPickCEA')
 
 para={\
 'delta0' :1,

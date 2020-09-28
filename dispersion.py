@@ -923,10 +923,15 @@ class fv:
             self.std = []
             if len(input)>2:
                 self.std = input[2]
+            if len(self.f)<2:
+                self.f=np.array([1,2])
+                self.v=np.array([1e-13,1e-13])
+                self.std=np.array([99,99])
         if mode == 'file':
             fvM = np.loadtxt(input)
             self.f = fvM[:,0]
             self.v = fvM[:,1]
+            self.std = []
         if mode == 'NEFile':
             T = []
             v = []
@@ -966,17 +971,18 @@ class fv:
             iL = self.dist.argsort()
             self.dist= self.dist[iL]
             self.v= self.v[:,iL]
-            
-
-
         self.interp = self.genInterp()
     def genInterp(self):
         if self.mode == 'fileP':
             return interpolate.interp2d(self.dist,self.f,self.v,kind='linear',\
                 bounds_error=False,fill_value=1e-8)
         else:
+            if len(self.std)>0:
+                self.STD = interpolate.interp1d(self.f,self.std,kind='linear',\
+                bounds_error=False,fill_value=1e-8)
             return interpolate.interp1d(self.f,self.v,kind='linear',\
                 bounds_error=False,fill_value=1e-8)
+
     def __call__(self,f,dist0=0, dist1=0,threshold=0.08,N=1000):
         shape0 =f.shape
         f = f.reshape([-1])   
@@ -1018,9 +1024,26 @@ class fv:
         if (dv<0.2).sum()>1:
             self.f = self.f[dv<0.2]
             self.v = v[dv<0.2]
+            self.std = self.std[dv<0.2]
         else:
             self.v[:] = 1e-9
         self.interp = self.genInterp()
+    def qc(self,threshold=0.08):
+        self.f = self.f[self.std<threshold]
+        self.v = self.v[self.std<threshold]
+        self.std = self.std[self.std<threshold]
+        if len(self.f)>2:
+            self.interp = self.genInterp()
+    def limit(self,self1,threshold=2):
+        v    = self(self1.f)
+        std  = self.STD(self.f)
+        vmin = v-threshold*std
+        vmax = v+threshold*std
+        valid= -(self1.v - vmin)*(self1.v - vmax)
+        self1.f   = self1.f[valid>0]
+        self1.v   = self1.v[valid>0]
+        self1.std = self1.std[valid>0]
+        self1.genInterp()
 
 
 def getFVFromPairFile(file,fvD={},quakeD={}):
@@ -1028,7 +1051,11 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
         lines = f.readlines()
     stat='next'
     #staDir = file.split('/')[-3]
-    staDir = file.split('/')[-1].split('-')[0]
+    fileName = file.split('/')[-1]
+    if fileName[:3]=='pvt':
+        staDir = file.split('/')[-3]
+    else:
+        staDir = fileName.split('-')[0]
     pairKey = staDir
     for line in lines:
         #print(stat)
@@ -1145,10 +1172,18 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
                 continue
         print(len(quakeD.keys()))
 
+def qcFvD(fvD):
+    keyL = []
+    for key in fvD:
+        if len(fvD[key].f)<5:
+            keyL.append(key)
+    for key in keyL:
+        fvD.pop(key)
+
 def averageFVL(fvL,minSta=5):
     fL =[]
-    for fv in fvL:
-        f = fv.f
+    for FV in fvL:
+        f = FV.f
         for F in f:
             if F not in fL:
                 fL.append(F)
@@ -1163,19 +1198,24 @@ def averageFVL(fvL,minSta=5):
     std = f*0
     v = f*0
     for i in range(len(f)):
-        mean, std, vN = QC(vMNew[i][vMNew[i]>1])
-        v[i] = mean
-        std[i] = std
+        MEAN, STD, vN = QC(vMNew[i][vMNew[i]>1])
+        v[i] = MEAN
+        std[i] = STD
     return fv([f,v,std])
 
-def fvD2fvM(fvD):
+def fvD2fvM(fvD,isDouble=False):
     fvM = {}
     for key in fvD:
-        sta0, sta1, quake = key.split('_')
+        time,la,lo,sta0, sta1 = key.split('_')
         keyNew = sta0+'_'+sta1
         if keyNew not in fvM:
             fvM[keyNew] = []
         fvM[keyNew].append(fvD[key])
+        if isDouble:
+            keyNew = sta1+'_'+sta0
+            if keyNew not in fvM:
+                fvM[keyNew] = []
+            fvM[keyNew].append(fvD[key])
     return fvM
 
 def fvM2Av(fvM):
@@ -1184,23 +1224,44 @@ def fvM2Av(fvM):
         fvD[key] = averageFVL(fvM[key])
     return fvD
 
-def plotFVM(fvM,fvD={},resDir='test/'):
+def plotFVM(fvM,fvD={},resDir='test/',isDouble=False):
     if not os.path.exists(resDir):
         os.makedirs(resDir)
     for key in fvM:
-        filename = resDir + 'key'+'.jpg'
+        filename = resDir + key+'.jpg'
         fvRef    = None
+        fvL = fvM[key]
+        if isDouble:
+            sta0, sta1 = key.split('_')
+            keyNew = sta1+'_'+sta0
+            if keyNew in fvM:
+                fvL += fvM[keyNew]
         if key in fvD:
             fvRef = fvD[key]
-        plotFVL(fvM[key],fvRef,filename=filename)
+        plotFVL(fvL,fvRef,filename=filename)
     
 
 def plotFVL(fvL,fvRef=None,filename='test.jpg'):
+    if not os.path.exists(os.path.dirname(filename)):
+        os.makedirs(os.path.dirname(filename))
+    plt.close()
     for fv in fvL:
-        plt.plot(fv.v,fv.f,'k')
+        if isinstance(fvL,dict):
+            fv = fvL[fv]
+        if len(fv.f)>2:
+            plt.plot(fv.v,fv.f,'k',linewidth=0.3)
     if fvRef !=None:
-        plt.plot(fvRef.v,fvRef.f,'k')
-    plt.save(filename,dpi=200)
+        plt.plot(fvRef.v,fvRef.f,'r',linewidth=0.3)
+    figSet()
+    plt.savefig(filename,dpi=200)
+    plt.close()
+
+def figSet():
+    plt.xlim([2,7])
+    plt.ylim([1/120,1/10])
+    plt.gca().semilogy()
+    plt.xlabel('v/(km/s)')
+    plt.ylabel('f/Hz')
 
 def fvD2fvL(fvD,stations,f):
     indexL = [[] for station in stations]
@@ -1209,11 +1270,10 @@ def fvD2fvL(fvD,stations,f):
         for j in range(len(stations)):
             sta0 = stations[i]
             sta1 = stations[j]
-            key = '%s_%s'(sta0.name('.'),sta1.name('.'))
+            key = '%s_%s'%(sta0.name('.'),sta1.name('.'))
             if key in fvD:
                 indexL[i].append(j)
                 vL[i].append(fvD[key](f))
-
     return indexL, vL
 
 def replaceByAv(fvD,fvDAv):
@@ -1232,6 +1292,32 @@ def replaceByAv(fvD,fvDAv):
             notL.append(modelName)
     for name in notL:
         fvD.pop(name)
+def compareFvD(fvD, fvDRef,resDir='results/'):
+    if not os.path.exists(resDir):
+        os.makedirs(resDir)
+    for key in fvDRef:
+        if key in fvD:
+            sta0,sta1 = key.split('_')
+            keyNew = sta1+'_'+sta0
+            if isinstance(fvD,dict):
+                fv = fvD[key]
+            if isinstance(fvDRef,dict):
+                fvRef = fvDRef[key]
+            if len(fvRef.f)>2:
+                plt.plot(fv.v,fv.f,'r',linewidth=0.3)
+                plt.plot(fvRef.v,fvRef.f,'k',linewidth=0.3)
+                if keyNew in fvD:
+                    fv1 = fvD[keyNew]
+                    plt.plot(fv1.v,fv1.f,'b',linewidth=0.3)
+                    plt.legend(['predict','back','manual'])
+                else:
+                    plt.legend(['predict','back'])
+            
+            figSet()
+            plt.title(key)
+            
+            plt.savefig(resDir+'compare_'+key+'.jpg',dpi=300)
+            plt.close()
 
 
 
@@ -1890,7 +1976,7 @@ class corrL(list):
         for i in range(N):
             sta0,sta1 = self[i].getStaName()
             index0 = staL.index(sta0)
-            index1 = staL.index(sta0)
+            index1 = staL.index(sta1)
             indexM[index0][index1].append(i)
         for i in range(sN):
             for j in range(sN):
