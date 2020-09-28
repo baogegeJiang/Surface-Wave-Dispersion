@@ -3,7 +3,7 @@ import os
 from scipy import interpolate
 from matplotlib import pyplot as plt
 from distaz import DistAz
-
+##程序中又控制的大bug
 class config:
 	def __init__(self,para={},name='ds',z=[10,20,40,80,120,160,200,320]):
 		self.name = name
@@ -12,19 +12,25 @@ class config:
 		'sablayers','minmaxV', 'maxIT','sparsity','kmaxRc','rcPerid','kmaxRg','rgPeriod',\
 		'kmaxLc','lcPeriod','kmaxLg','lgPeriod','isSyn','noiselevel','threshold',\
 		'vnn']
+		config.keyList = ['dataFile', 'nxyz', 'lalo', 'dlalo', 'sablayers','minmaxV',\
+		'maxN','sparsity', 'maxIT','iso','c','smoothDV','smoothG','Damp',\
+		'c','kmaxRc','rcPerid']
 		self.para = {'dataFile':name+'in', 'nxyz':[18,18,9], 'lalo':[130,30],\
 		 'dlalo':[0.01,0.01], 'maxN':[20],'damp':[4.0,1.0],\
-		'sablayers':3,'minmaxV':[2,7],'maxIT':10, 'sparsity':0.2,\
+		'sablayers':3,'minmaxV':[2,7],'maxIT':10, 'sparsity':0.8,\
 		'kmaxRc':10,'rcPerid':np.arange(1,11).tolist(),'kmaxRg':0,'rgPeriod':[],\
 		'kmaxLc':0,'lcPeriod':[],'kmaxLg':0,'lgPeriod':[],'isSyn':0,'noiselevel':0.02,'threshold':0.05,\
-		'vnn':[0,100,50]}
+		'vnn':[0,100,50],'iso':'F','c':'c','smoothDV':20,'smoothG':40,'Damp':0,}
 		self.para.update(para)
 	def output(self):
 		nxyz = self.para['nxyz']
 		la = self.para['lalo'][0]-np.arange(nxyz[0])*self.para['dlalo'][0]
 		lo = self.para['lalo'][1]+np.arange(nxyz[1])*self.para['dlalo'][1]
 		return nxyz,la,lo,self.z
-
+	def findLaLo(self,la,lo):
+		laNew = -int((self.para['lalo'][0]-la)/self.para['dlalo'][0])*self.para['dlalo'][0]+self.para['lalo'][0]+0.001
+		loNew =  int((lo-self.para['lalo'][1])/self.para['dlalo'][1])*self.para['dlalo'][1]+self.para['lalo'][1]+0.001
+		return la,lo
 class DS:
 	"""docstring for ClassName"""
 	def __init__(self,runPath='DS/',config=config()):
@@ -83,29 +89,31 @@ class DS:
 				distM[i,j] = dist
 				distM[j,i] = dist
 		with open(self.runPath+'/'+self.config.para['dataFile'],'w') as f:
-			for i in range(staN):
-				if len(indexL[i])==0:
-					continue
-				for j in range(self.config.para['kmaxRc']):
+			for j in range(self.config.para['kmaxRc']):
+				for i in range(staN):
+					if len(indexL[i])==0:
+						continue
 					vL =np.zeros(len(indexL[i]))
 					for k in range(len(indexL[i])):
 						vL[k]=fvLL[i][k][j]
 					nvL = (vL>2).sum()
 					if nvL<2:
 						continue
-					f.write('# %f %f %d 2 0\n'%(stations[i]['la'],\
-						stations[i]['lo'],j+1))
+					la,lo=self.config.findLaLo(stations[i]['la'],\
+						stations[i]['lo'])
+					f.write('# %.3f %.3f %d 2 0\n'%(la,lo,j+1))
 					for k in range(len(indexL[i])):
 						kk = indexL[i][k]
 						if vL[k]>2:
-							f.write('%f %f %f\n'%(stations[kk]['la'],\
-								stations[kk]['lo'],vL[k]))
+							la,lo=self.config.findLaLo(stations[kk]['la'],\
+							stations[kk]['lo'])
+							f.write('%.3f %.3f %f\n'%(la,lo,vL[k]))
 	def writeMod(self,mod=[]):
 		nx,ny,nz=self.config.para['nxyz']
 		dep1=np.array(self.config.z)
 		#dep1=np.array([0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.1,1.3,1.5,1.8,2.1,2.5])
 		nz=len(dep1)
-		#end
+		#ends
 		vs1=np.zeros(nz)
 		model = loadModel()
 		if len(mod) ==0:
@@ -134,7 +142,7 @@ class DS:
 		self.writeMod()
 	def loadRes(self,it=-1):
 		if it<0:
-			filename = '%s/%sMeasure.dat'%(self.runPath,self.config.name)
+			filename = '%s/Gc_Gs_model.inv'%(self.runPath)
 			
 		else:
 			filename = '%s/%sMeasure.dat.iter0%d'%(self.runPath,self.config.name,it)
@@ -159,9 +167,9 @@ class Model:
 			La = data[i,1]
 			Z  = data[i,2]
 			v  = data[i,3]
-			i0 = la.index(La)
-			i1 = lo.index(Lo)
-			i2 = z.index(Z)
+			i0 = np.abs(la-La).argmin()
+			i1 = np.abs(lo-Lo).argmin()
+			i2 = np.abs(z-Z).argmin()
 			self.v[i0,i1,i2]=v
 		for i in range(nxyz[-1]):
 			self.v[self.v[:,:,i]<0,i] = self.v[self.v[:,:,i]>0,i].mean()
@@ -173,8 +181,10 @@ class Model:
 			os.mkdir(resDir)
 		for i in range(self.nxyz[-1]):
 			plt.close()
-			plt.pcolor(self.lo,self.la,self.v[:,:,i],cmap='bwr')
+			plt.pcolor(self.lo,self.la,-self.v[:,:,i],cmap='bwr')
+			plt.colorbar()
 			plt.savefig('%s/%f.jpg'%(resDir,self.z[i]),dpi=200)
+			plt.ylim([35,55])
 			plt.close()
 
 def loadModel(file='models/prem'):

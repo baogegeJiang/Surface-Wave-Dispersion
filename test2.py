@@ -510,23 +510,27 @@ f = 1/tTrain
 
 indexL,vL = d.fvD2fvL(fvAv,stations,f)
 import DSur
-surPara={ 'nxyz':[32,48,8], 'lalo':[54,110],\
-         'dlalo':[0.6,0.6], 'maxN':[43],\
+surPara={ 'nxyz':[38,42,18], 'lalo':[29,98],\
+         'dlalo':[0.25,0.25], 'maxN':[43],\
         'kmaxRc':50,'rcPerid':tTrain.tolist(),'threshold':0.05,\
-        'vnn':[0,100,50],'maxIT':30}
-DSConfig = DSur.config(para=surPara)
+        'vnn':[0,100,50],'maxIT':15}
+DSConfig = DSur.config(para=surPara,z=[0.00,5.00,10.00,15.00,20.00,25.00,30.00,35.00,\
+    40.00,45.00,50.00,55.00,60.00,70.00,80.00,90.00,100.00,120.00])
 DS = DSur.DS(config=DSConfig)
 DS.test(vL,indexL,stations)
 DSModel = DS.loadRes()
 DSModel.plotByZ()
 ############
 indexL,vL = d.fvD2fvL(fvDAvarageCEA,stations,f)
+
+indexL,vL = d.fvD2fvL(fvAv,stations,f)
+z=[0,10,20,30,40,60,80,100,125,150,180,200,250,300,350]
 import DSur
-surPara={ 'nxyz':[32,48,16], 'lalo':[60,105],\
-         'dlalo':[1,1], 'maxN':[43],\
-        'kmaxRc':50,'rcPerid':tTrain.tolist(),'threshold':0.01,\
-        'vnn':[0,100,50],'maxIT':15}
-DSConfig = DSur.config(para=surPara,z=[0,10,20,30,40,50,60,70,80,90,100,120,160,200,250,300])
+surPara={ 'nxyz':[5,5,len(z)], 'lalo':[66,95],\
+         'dlalo':[10,10], 'maxN':43,\
+        'kmaxRc':len(tTrain),'rcPerid':tTrain.tolist(),'threshold':0.01\
+        ,'maxIT':6}
+DSConfig = DSur.config(para=surPara,z=z)
 DS = DSur.DS(config=DSConfig)
 DS.test(vL,indexL,stations)
 DSModel = DS.loadRes()

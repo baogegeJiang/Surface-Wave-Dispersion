@@ -80,6 +80,9 @@ class filePath:
             #staDir/2009/R304/NE67.2009.304.00.00.00.BHZ.sac
             #2010/001/ANQ.2009365160003.AH.00.D.BHN.sac
                 pattern = '%s/%s/%s*%s.sac'%(staDir,time.strftime('%Y/%j'),sta,comp)
+        elif nameMode == 'CEAO':
+            time = time+8*3600
+            pattern = '%s/%s/%s*%s.sac'%(staDir,time.strftime('%Y%m%d/'),sta,comp)
         #print('##',pattern)
         return glob(pattern)
     def getStaDirL(self,net,sta,nameMode=''):
@@ -95,6 +98,8 @@ class filePath:
         if nameMode == 'CEA':
             staDirL = ['/net/CEA/CEA1s/CEA/%s/%s/'%(net,sta),'/net/CEA/CEA1s/CEA_old/%s/%s/'%(net,sta)]
         staName = net + ' ' + sta
+        if nameMode == 'CEAO':
+            staDirL = ['/net/CEA/CEA_*/']
         if staName in self.himaDir:
             staDirL = self.himaDir[staName]
         return staDirL

@@ -1267,7 +1267,7 @@ def fvD2fvL(fvD,stations,f):
     indexL = [[] for station in stations]
     vL     = [[] for station in stations]
     for i in range(len(stations)):
-        for j in range(len(stations)):
+        for j in range(i,len(stations)):
             sta0 = stations[i]
             sta1 = stations[j]
             key = '%s_%s'%(sta0.name('.'),sta1.name('.'))
