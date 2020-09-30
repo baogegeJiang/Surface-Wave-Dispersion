@@ -464,7 +464,7 @@ corrLQuakePValid = d.corrL(corrLQuakeP,specThreshold=specThreshold,fvD=fvVaild)
 #random.shuffle(corrLQuakePTrain)
 #random.shuffle(corrLQuakePValid)
 #random.shuffle(corrLQuakePTest)
-tTrain = (12**np.arange(0,1.000001,1/49))*10
+tTrain = (16**np.arange(0,1.000001,1/49))*10
 corrLQuakePTrain.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=False,\
 set2One=True,move2Int=False)
@@ -476,7 +476,7 @@ byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=False,\
 set2One=True,move2Int=False)#0.05
 modelP = fcn.model(channelList=[0,2,3])
 fcn.trainAndTest(modelP,corrLQuakePTrain,corrLQuakePValid,corrLQuakePTest,\
-    outputDir='predict/0926byQuake_dense+++_1-300_1-5_allllRecord_w3_L7_count05_SNR8/CEA_P_',\
+    outputDir='predict/0928byQuake_dense+++_1-300_1-5_allllRecord_w3_L7_count05_SNR8/CEA_P_',\
     sigmaL=[1.5],tTrain=tTrain,perN=200,count0=5,w0=3)#w0=2
 
 corrLQuakeP0 = d.corrL(corrLQuakeP0,maxCount=4096*3)
@@ -485,11 +485,30 @@ corrLQuakeP0.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
 byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=True,\
 set2One=True,move2Int=False,modelNameO='models/prem')
 
-resDir = 'predict/v20ByQuake/'
+
+stationsNE = seism.StationList('stations/NEsta_all.locSensorDas')
+stationsNE.set('oRemove',False)
+stations = stationsNE
+stations.getInventory()
+
+quakes  = seism.QuakeL('phaseLCEAV2_more')
+corrLQuakeP0=config.quakeCorr(quakes,stations,\
+    byRecord=False,remove_resp=True,minSNR=SNR,isLoadFv=False,\
+    fvD=fvDAvarage,isByQuake=True,para={\
+    'pre_filt': (1/400, 1/300, 1/2, 1/1.5),\
+        'output':'DISP','freq':[1/5],'filterName':'lowpass',\
+        'corners':4,'toDisp':False,'zerophase':True,'maxA':1e15})
+corrLQuakeP0 = d.corrL(corrLQuakeP0,maxCount=4096*3)
+
+corrLQuakeP0.setTimeDis(fvDAvarage,tTrain,sigma=1.5,maxCount=4096*3,\
+byT=False,noiseMul=0.0,byA=True,rThreshold=0.0,byAverage=True,\
+set2One=True,move2Int=False,modelNameO='models/prem')
+
+resDir = 'predict/v23ByQuake_NE/'
 corrLQuakeP0.getAndSave(modelP,'%s/CEA_P_'%resDir,stations\
     ,isPlot=True,isLimit=True,isSimple=False,D=0.2)
-resDir = 'predict/v20ByQuake/'
-fvNEDGet,quakesGet = d.config().loadQuakeNEFV(stationsCEA,quakeFvDir=resDir)
+resDir = 'predict/v23ByQuake_NE/'
+fvNEDGet,quakesGet = d.config().loadQuakeNEFV(stations,quakeFvDir=resDir)
 fvDAvarageCEA = d.config().loadNEFV(stationsCEA,fvDir='models/ayu/Pairs_avgpvt/')
 fvM=d.fvD2fvM(fvNEDGet,isDouble=True)
 fvAv = d.fvM2Av(fvM)
@@ -501,9 +520,11 @@ d.plotFVL(fvAv,fvRef=fvPrem,filename='%s/pairRes/pair.jpg'%resDir)
 for fv in fvAv:
     fvAv[fv].qc()
 
+d.qcFvD(fvAv)
 len(fvAv)
 d.plotFVL(fvAv,fvRef=fvPrem,filename='%s/pairRes/paris_qc.jpg'%resDir)
 d.compareFvD(fvAv,fvDAvarageCEA,resDir='%s/pairRes/paris_qc/'%resDir)
+
 d.qcFvD(fvAv)
 f = 1/tTrain
 
@@ -523,18 +544,21 @@ DSModel.plotByZ()
 ############
 indexL,vL = d.fvD2fvL(fvDAvarageCEA,stations,f)
 
-indexL,vL = d.fvD2fvL(fvAv,stations,f)
+tSur = (16**np.arange(0,1.000001,1/29))*10
+indexL,vL = d.fvD2fvL(fvAv,stations,1/tSur)
+
 z=[0,10,20,30,40,60,80,100,125,150,180,200,250,300,350]
+z=[0]+(35**np.arange(0,1,1/11)*10).tolist()
 import DSur
-surPara={ 'nxyz':[5,5,len(z)], 'lalo':[66,95],\
-         'dlalo':[10,10], 'maxN':43,\
-        'kmaxRc':len(tTrain),'rcPerid':tTrain.tolist(),'threshold':0.01\
+surPara={ 'nxyz':[36,54,len(z)], 'lalo':[56,109],\
+         'dlalo':[0.5,0.5], 'maxN':43,\
+        'kmaxRc':len(tSur),'rcPerid':tSur.tolist(),'threshold':0.01\
         ,'maxIT':6}
 DSConfig = DSur.config(para=surPara,z=z)
-DS = DSur.DS(config=DSConfig)
+DS = DSur.DS(config=DSConfig,runPath='DS/NE160/')
 DS.test(vL,indexL,stations)
-DSModel = DS.loadRes()
-DSModel.plotByZ()
+DS.loadRes()
+DS.plotByZ()
 
 '''
 handle some preparation
@@ -705,7 +729,7 @@ para={\
 'delta0' :1,
 'freq'   :[-1,-1],#[0.8/3e2,0.8/2],
 'corners':4,
-'maxA':1e10,
+'maxA':1e19,
 }
 
 quakes.cutSac(stations,bTime=-1500,eTime =12300,\
@@ -713,15 +737,17 @@ quakes.cutSac(stations,bTime=-1500,eTime =12300,\
 
 #stations = seism.StationList('stations/NEsta_all.locSensorDas')
 stations = seism.StationList('stations/CEA.sta_sel')
+#stations = seism.StationList('stations/CEA.sta_know')
 stations.getInventory()
 quakes  = seism.QuakeL('phaseLCEAV2_more')
 quakes  = seism.QuakeL('phaseLPickCEA')
+quakes.sort()
 for quake in quakes[:]:
     print(quake)
     a=quake.getSacFiles(stations,isRead=True,remove_resp=True,\
         isPlot=False,isSave=True,para={'freq':[-1,-1],\
         'pre_filt': (1/400, 1/300, 1/2, 1/1.5),\
-        'output':'VEL'},isSkip=False)
+        'output':'DISP'},isSkip=True,strL='z')
 stations = seism.StationList('stations/CEA.sta_sel')
 quakes   = seism.QuakeL('phaseLNE')
 stations = seism.StationList('stations/NEsta_all.locSensorDas')
@@ -811,16 +837,16 @@ from glob import glob
 import os 
 import obspy
 stations = seism.StationList('stations/CEA.sta')
-YMDL=glob('/media/jiangyr/CEA/CEA_1s/old/old/????????/')
+YMDL=glob('/media/jiangyr/CEA/CEA_1s/????????/')
 
-for YMD in YMDL:
+for YMD in YMDL[43:]:
     strT=YMD.split('/')[-2]
     time = obspy.UTCDateTime(strT)
     YJ   = time.strftime('%Y/%j/')
     for station in stations:
         net = station['net']
         sta = station['sta']
-        tmpDistDir = '/net/CEA/CEA1s/CEA_old/%s/%s/%s/'%(net,sta,YJ)
+        tmpDistDir = '/net/CEA/CEA1s/CEA/%s/%s/%s/'%(net,sta,YJ)
         if not os.path.exists(tmpDistDir):
             mkdir = 'echo a314349798 | sudo mkdir -p %s'%(tmpDistDir)
             os.system(mkdir)

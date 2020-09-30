@@ -19,6 +19,7 @@ from mathFunc import fitexp
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
+形成分区域的代码
 '''
 gpdcExe = '/home/jiangyr/program/geopsy/bin/gpdc'
 class config:
@@ -914,13 +915,14 @@ class fv:
     class for dispersion result
     it have two attributes f and v, each element in v accosiate with an 
      element in v 
+     用于插值的本身就必须是好的数
     '''
     def __init__(self,input,mode='num',threshold=0.06):
         self.mode = mode
         if mode == 'num':
             self.f = input[0]
             self.v = input[1]
-            self.std = []
+            self.std = self.f*0+99
             if len(input)>2:
                 self.std = input[2]
             if len(self.f)<2:
@@ -931,7 +933,7 @@ class fv:
             fvM = np.loadtxt(input)
             self.f = fvM[:,0]
             self.v = fvM[:,1]
-            self.std = []
+            self.std = self.f*0+99
         if mode == 'NEFile':
             T = []
             v = []

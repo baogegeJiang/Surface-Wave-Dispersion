@@ -4,6 +4,7 @@ from scipy import interpolate
 from matplotlib import pyplot as plt
 from distaz import DistAz
 ##程序中又控制的大bug
+##必须按顺序(period source)
 class config:
 	def __init__(self,para={},name='ds',z=[10,20,40,80,120,160,200,320]):
 		self.name = name
@@ -146,7 +147,10 @@ class DS:
 			
 		else:
 			filename = '%s/%sMeasure.dat.iter0%d'%(self.runPath,self.config.name,it)
-		return Model(filename, self.config)
+		self.vModel = Model(filename, self.config)
+		return self.vModel
+	def plotByZ(self):
+		self.vModel.plotByZ(self.runPath)
 
 
 class Model:
@@ -183,6 +187,7 @@ class Model:
 			plt.close()
 			plt.pcolor(self.lo,self.la,-self.v[:,:,i],cmap='bwr')
 			plt.colorbar()
+			plt.title('%f.jpg'%self.z[i])
 			plt.savefig('%s/%f.jpg'%(resDir,self.z[i]),dpi=200)
 			plt.ylim([35,55])
 			plt.close()

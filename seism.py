@@ -159,9 +159,9 @@ class Station(Dist):
     def defaultSet(self):
         super().defaultSet()
         self.keysIn   = 'net sta compBase lo la erroLo erroLa dep erroDep '.split()
-        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum nameMode netSta doFilt oRemove'.split()
-        self.keysType ='S S S f f f f f f S l f F S S S S S b b'.split()
-        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','','','',True,False]
+        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum nameMode netSta doFilt oRemove baseSacName'.split()
+        self.keysType ='S S S f f f f f f S l f F S S S S S b b S'.split()
+        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','','','',True,False,'net.sta.info.compBase']
         self.keysName = ['net','sta']
     def getNickName(self, index):
         nickName = ''
@@ -190,6 +190,26 @@ class Station(Dist):
          and isinstance(self['sta'],NoneType):
             self['net'], self['sta'] = self[key].split('.')[:2]
     def baseSacName(self,resDir='',strL='ENZ',infoStr=''):
+        nameKeyL = self['baseSacName'].split('.')
+        fileL =[]
+        for comp in strL:
+            fileStr = ''
+            for nameKey in nameKeyL:
+                if nameKey in self.keys:
+                    tmpStr = self[nameKey]
+                else:
+                    tmpStr = nameKey
+                if nameKey == 'BH' or nameKey == 'compBase':
+                    tmpStr += comp
+                if nameKey == 'info' and infoStr == '':
+                    continue
+                if nameKey == 'info' and infoStr != '':
+                    tmpStr = infoStr
+                fileStr += tmpStr +'.'
+            if 'info' not in nameKeyL and infoStr != '':
+                fileStr += infoStr+'.'
+            fileL.append(resDir+'/'+fileStr[:-1])
+        return fileL
         if infoStr=='':
             return [ resDir+'/'+self['net']+'.'+self['sta']+'.'+self['compBase']+comp for comp in strL]
         else:
@@ -200,6 +220,7 @@ class Station(Dist):
     def getInventory(self):
         self.sensor=[]
         self.das=[]
+        print(self)
         for i in range(3):
             sensor, das=  self['nameFunc'].getInventory(self['net'],self['sta'],\
                 self['sensorName'],self['dasName'],comp=self['comp'][i],nameMode=self['nameMode'])
@@ -226,6 +247,14 @@ class StationList(list):
                 self.append(sta)
         if isinstance(argv[0],str):
             self.read(argv[0])
+    def inR(self,lalo):
+        indexL = []
+        for i in range(len(self)-1,-1,-1):
+            sta = self[i]
+            if sta['la']<lalo[0] or sta['la']>lalo[1] or sta['lo']<lalo[2] or sta['lo']>lalo[3]:
+                indexL.append(i)
+        for i in  indexL:
+            self.pop(i)
     def __add__(self,self1):
         selfNew = StationList([])
         for station in self:
@@ -310,6 +339,12 @@ class StationList(list):
     def set(self,key,value):
         for tmp in self:
             tmp[key] = value
+    def plot(self,filePath='station.jpg'):
+        plt.close()
+        for sta in self:
+            plt.plot(sta['lo'],sta['la'],'^k')
+        plt.savefig(filePath,dpi=300)
+        plt.close()
 
 
         
@@ -498,6 +533,7 @@ class Quake(Dist):
                         continue
                 if self['time']<UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA'\
                     and len(station.sensor[0])<2:
+                    print('noOld')
                     continue
             if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
                 continue
@@ -544,56 +580,62 @@ class Quake(Dist):
                     continue
                 if isRead:
                     #print(resSacNames)
-                    sacsL.append([ obspy.read(resSacName)[0] for resSacName in resSacNames])
-                    if isPlot:
-                        plt.close()
-                        for i in range(3):
-                            plt.subplot(3,1,i+1)
-                            data = sacsL[-1][i].data
-                            delta= sacsL[-1][i].stats['sac']['delta']
-                            timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
-                            plt.plot(timeL,data/data.std(),'b',linewidth=0.5)
-                    if remove_resp and respDone==False and station['oRemove'] ==False:
-                        print('remove_resp ',station)
-                        
-                        for channelIndex in range(len(strL)):
-                            sac = sacsL[-1][channelIndex]
-                            channelIndexO = defaultStrL.index(strL[channelIndex])
-                            sensor = station.sensor[channelIndexO]
-                            if self['time'] >= UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA':
-                                sensor = station.sensor[channelIndexO][:1]
-                            if self['time'] < UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA':
-                                sensor = station.sensor[channelIndexO][1:]
-                            das    = station.das[channelIndexO]
-                            originStats={}
-                            for key in station.defaultStats:
-                                originStats[key] = sac.stats[key]
-                            if station['net'] == 'hima':
-                                sac.stats.update(station.defaultStats)
-                            #print(sac.stats)
-                            if station['net'] == 'YP' or station['nameMode'] == 'CEA':
-                                sac.stats.update({'channel': station['compBase']+strL[channelIndex]})
-                                sac.stats.update({'knetwk': station['net'],'network': station['net']})
-                            #print(sac.stats,sensor[0][0][0],sensor[1][0][0])
-                            if 'pre_filt' in para:
-                                sac.remove_response(inventory=sensor,\
-                                    output=para['output'],water_level=60,\
-                                    pre_filt=para['pre_filt'])
-                            else:
-                                sac.remove_response(inventory=sensor,\
-                                    output=para['output'],water_level=60)                           
-                            sac.stats.update(station.defaultStats)
-                            if station['nameMode'] != 'CEA':
-                                sac.remove_response(inventory=das,\
-                                    output="VEL",water_level=60)
-                            sac.stats.update(originStats)
+                    try:
+                        sacsL.append([ obspy.read(resSacName)[0] for resSacName in resSacNames])
                         if isPlot:
+                            plt.close()
                             for i in range(3):
                                 plt.subplot(3,1,i+1)
                                 data = sacsL[-1][i].data
                                 delta= sacsL[-1][i].stats['sac']['delta']
                                 timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
-                                plt.plot(timeL,data/data.std(),'r',linewidth=0.5)
+                                plt.plot(timeL,data/data.std(),'b',linewidth=0.5)
+                        if remove_resp and respDone==False and station['oRemove'] ==False:
+                            print('remove_resp ',station)
+                            
+                            for channelIndex in range(len(strL)):
+                                sac = sacsL[-1][channelIndex]
+                                channelIndexO = defaultStrL.index(strL[channelIndex])
+                                sensor = station.sensor[channelIndexO]
+                                if self['time'] >= UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA':
+                                    sensor = station.sensor[channelIndexO][:1]
+                                if self['time'] < UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA':
+                                    sensor = station.sensor[channelIndexO][1:]
+                                das    = station.das[channelIndexO]
+                                originStats={}
+                                for key in station.defaultStats:
+                                    originStats[key] = sac.stats[key]
+                                if station['net'] == 'hima':
+                                    sac.stats.update(station.defaultStats)
+                                #print(sac.stats)
+                                if station['net'] == 'YP' or station['nameMode'] == 'CEA':
+                                    sac.stats.update({'channel': station['compBase']+strL[channelIndex]})
+                                    sac.stats.update({'knetwk': station['net'],'network': station['net']})
+                                #print(sac.stats,sensor[0][0][0],sensor[1][0][0])
+                                if 'pre_filt' in para:
+                                    sac.remove_response(inventory=sensor,\
+                                        output=para['output'],water_level=60,\
+                                        pre_filt=para['pre_filt'])
+                                else:
+                                    sac.remove_response(inventory=sensor,\
+                                        output=para['output'],water_level=60)                           
+                                sac.stats.update(station.defaultStats)
+                                if station['nameMode'] != 'CEA':
+                                    sac.remove_response(inventory=das,\
+                                        output="VEL",water_level=60)
+                                sac.stats.update(originStats)
+                            if isPlot:
+                                for i in range(3):
+                                    plt.subplot(3,1,i+1)
+                                    data = sacsL[-1][i].data
+                                    delta= sacsL[-1][i].stats['sac']['delta']
+                                    timeL = np.arange(len(data))*delta+sacsL[-1][i].stats['sac']['b']
+                                    plt.plot(timeL,data/data.std(),'r',linewidth=0.5)
+                    except:
+                        print('no resp continue')
+                        continue
+                    else:
+                        pass
                     
                     for sac in sacsL[-1]:
                         sac.detrend()
