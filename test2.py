@@ -747,7 +747,7 @@ for quake in quakes[:]:
     a=quake.getSacFiles(stations,isRead=True,remove_resp=True,\
         isPlot=False,isSave=True,para={'freq':[-1,-1],\
         'pre_filt': (1/400, 1/300, 1/2, 1/1.5),\
-        'output':'DISP'},isSkip=True,strL='z')
+        'output':'VEL'},isSkip=True)
 stations = seism.StationList('stations/CEA.sta_sel')
 quakes   = seism.QuakeL('phaseLNE')
 stations = seism.StationList('stations/NEsta_all.locSensorDas')
@@ -864,3 +864,9 @@ for quake in quakes0:
         print(UTCDateTime(quake['time']),i)
         #if os.path.exists(os.path.dirname(resDir)):
         #    os.system('rm -r %s'%os.path.dirname(resDir))
+
+import run
+
+R  = run.run()
+R.loadCorr()
+R.train()

@@ -239,7 +239,7 @@ class config:
                 srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO,\
                 removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv,quakeName=quakeName,\
                 isByQuake=isByQuake)
-            print('###########',len(corrL))
+            print('###########',len(corrL),corrL[-1].modelFile)
         return corrL
     def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
         corrL = []
@@ -1780,6 +1780,9 @@ class corrL(list):
             for i in range(N):
                 index = self.iL[i]
                 modelFile = self[index].modelFile
+                if 'modelNameO' in self.timeDisKwarg:
+                    if self.timeDisKwarg['modelNameO'] !='':
+                        modelFile = self.timeDisKwarg['modelNameO']
                 fv=fvD[modelFile]
                 for j in range(M): 
                     v0 = fv(1/T[j])
@@ -2210,7 +2213,9 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
             if isByQuake:
                modelFile0=quakeName+'_'+modelFile0 
                modelFile1=quakeName+'_'+modelFile1
+
             if modelFile0  in fvD:
+                print(modelFile0,modelFile1)
                 modelFile = modelFile0
             if modelFile1  in fvD:
                 modelFile = modelFile1
