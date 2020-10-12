@@ -9,6 +9,7 @@ import random
 from matplotlib import pyplot as plt
 import time
 from glob import glob
+plt.switch_backend('agg')
 fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
@@ -533,7 +534,7 @@ class Quake(Dist):
                         continue
                 if self['time']<UTCDateTime(2009,7,1).timestamp and station['nameMode']=='CEA'\
                     and len(station.sensor[0])<2:
-                    print('noOld')
+                    #print('noOld')
                     continue
             if len(staIndexs) > 0 and staIndex not in staIndexs and byRecord:
                 continue

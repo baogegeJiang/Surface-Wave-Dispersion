@@ -1,8 +1,11 @@
 import numpy as np
 import os 
-from scipy import interpolate
+from scipy import interpolate,stats
 from matplotlib import pyplot as plt
 from distaz import DistAz
+from netCDF4 import Dataset
+import pycpt
+cmap = pycpt.load.gmtColormap('cpt/temperatureInv')
 ##程序中又控制的大bug
 ##必须按顺序(period source)
 class config:
@@ -15,13 +18,13 @@ class config:
 		'vnn']
 		config.keyList = ['dataFile', 'nxyz', 'lalo', 'dlalo', 'sablayers','minmaxV',\
 		'maxN','sparsity', 'maxIT','iso','c','smoothDV','smoothG','Damp',\
-		'c','kmaxRc','rcPerid']
+		'c','kmaxRc','rcPerid','nBatch']
 		self.para = {'dataFile':name+'in', 'nxyz':[18,18,9], 'lalo':[130,30],\
 		 'dlalo':[0.01,0.01], 'maxN':[20],'damp':[4.0,1.0],\
-		'sablayers':3,'minmaxV':[2,7],'maxIT':10, 'sparsity':0.8,\
+		'sablayers':3,'minmaxV':[1,7],'maxIT':10, 'sparsity':0.4,\
 		'kmaxRc':10,'rcPerid':np.arange(1,11).tolist(),'kmaxRg':0,'rgPeriod':[],\
 		'kmaxLc':0,'lcPeriod':[],'kmaxLg':0,'lgPeriod':[],'isSyn':0,'noiselevel':0.02,'threshold':0.05,\
-		'vnn':[0,100,50],'iso':'F','c':'c','smoothDV':20,'smoothG':40,'Damp':0,}
+		'vnn':[0,100,50],'iso':'F','c':'c','smoothDV':10,'smoothG':20,'Damp':0,}
 		self.para.update(para)
 	def output(self):
 		nxyz = self.para['nxyz']
@@ -147,17 +150,33 @@ class DS:
 			
 		else:
 			filename = '%s/%sMeasure.dat.iter0%d'%(self.runPath,self.config.name,it)
-		self.vModel = Model(filename, self.config)
+		self.vModel = Model(filename, self.config,self.runPath)
 		return self.vModel
 	def plotByZ(self):
 		self.vModel.plotByZ(self.runPath)
-
+	def plotTK(self):
+		nxyz,la,lo,z = self.config.output()
+		z0,la0,lo0,vsv0= loadModelTK()
+		resDir = self.runPath+'/'+'plot/'
+		if not os.path.exists(resDir):
+			os.mkdir(resDir)
+		for i in range(nxyz[-1]):
+			index = np.abs(z[i]-z0).argmin()
+			v = interpolate.interp2d(lo0,la0,vsv0[index])(lo,la) 
+			plt.close()
+			plt.pcolor(lo,la,-v,cmap=cmap)
+			plt.colorbar()
+			plt.title('%f.jpg'%z[i])
+			plt.savefig('%s/TK_%f.jpg'%(resDir,z[i]),dpi=200)
+			plt.ylim([35,55])
+			plt.close()
 
 class Model:
 	def __init__(self,file,config,runPath='DS/'):
 		data0 = np.loadtxt(runPath+'/MOD',skiprows=1)
 		data = np.loadtxt(file)
 		nxyz,la,lo,z = config.output()
+		self.config=config
 		self.nxyz = nxyz
 		self.la   = la
 		self.lo   = lo
@@ -175,19 +194,57 @@ class Model:
 			i1 = np.abs(lo-Lo).argmin()
 			i2 = np.abs(z-Z).argmin()
 			self.v[i0,i1,i2]=v
+		#self.v  = (self.v*1000).astype(np.int)/1000
+		'''
 		for i in range(nxyz[-1]):
-			self.v[self.v[:,:,i]<0,i] = self.v[self.v[:,:,i]>0,i].mean()
+			v = self.v[:,:,i]
+			vv = v.reshape([-1])
+			vv = vv[vv>0]
+			if len(vv)==0:
+				continue
+			many=stats.mode(vv[vv>0])[0][0]
+			mean = vv[vv!=many].mean()
+			v[v==many] = mean
+			v[v<0]     = mean
+			print(mean,many)
+			self.v[:,:,i] = v
+		'''
+			#self.v[self.v[:,:,i]<0,i] = self.v[self.v[:,:,i]>0,i].mean()
 
 		
 	def plotByZ(self,runPath='DS'):
 		resDir = runPath+'/'+'plot/'
 		if not os.path.exists(resDir):
 			os.mkdir(resDir)
+		z = self.z.tolist()
+		z.append(0)
+		nxyz,la,lo,z = self.config.output()
+		#prem =loadModel()
+		#prem =loadModelTKV2(la,lo)
+		#premV=prem(np.array(z))
+		
+
 		for i in range(self.nxyz[-1]):
 			plt.close()
-			plt.pcolor(self.lo,self.la,-self.v[:,:,i],cmap='bwr')
+			v = self.v[:,:,i]
+			#mean = (premV[i-1]+premV[i])/2
+			#
+			laN, loN = v.shape
+			midLaN = int(1.2/4*laN)
+			midLoN = int(1.2/4*loN)
+			mean = v[midLaN:-midLaN,midLoN:-midLoN].mean()
+			print(mean)
+			v[v<0]=mean
+			#mean = v.mean()
+			Per  = (v-mean)/mean
+			la,lo,per=denseLaLo(self.la,self.lo,Per[:,:])
+			plt.pcolor(lo,la,per,cmap=cmap)
+			plt.clim(vmin=-np.abs(per[midLaN:-midLaN,midLoN:-midLoN])\
+				.max(),vmax=np.abs(per[midLaN:-midLaN,midLoN:-midLoN]\
+					).max())
+			plt.clim(vmin=-8/100,vmax=-8/100)			#plt.pcolor(self.lo,self.la,-self.v[:,:,i],cmap='bwr')
 			plt.colorbar()
-			plt.title('%f.jpg'%self.z[i])
+			plt.title('%f_%f.jpg'%(self.z[i],mean))
 			plt.savefig('%s/%f.jpg'%(resDir,self.z[i]),dpi=200)
 			plt.ylim([35,55])
 			plt.close()
@@ -197,3 +254,33 @@ def loadModel(file='models/prem'):
 	z = data[:,0]
 	vs = data[:,2]
 	return interpolate.interp1d(z,vs)
+
+def loadModelTK(file = 'models/tk.nc'):
+	nc  = Dataset(file,'r')
+	z   =  nc.variables['depth'][:]
+	la  =  nc.variables['latitude'][:]
+	lo  =  nc.variables['longitude'][:]
+	vsv =  nc.variables['vsv'][:]
+	return z,la,lo,vsv
+
+def loadModelTKV2(La,Lo,file = 'models/tk.nc'):
+	z,la,lo,vsv = loadModelTK(file)
+	iLa0 = np.abs(la- La.min()).argmin()
+	iLa1 = np.abs(la- La.max()).argmin()
+	iLo0 = np.abs(lo- Lo.min()).argmin()
+	iLo1 = np.abs(lo- Lo.max()).argmin()
+	mean =  vsv[:,iLa0:iLa1,iLo0:iLo1].mean(axis=(1,2))
+	print(mean)
+	return interpolate.interp1d(z,mean)
+
+def denseLaLo(La,Lo,Per,N=500):
+	dLa = (La[-1]-La[0])/N
+	dLo = (Lo[-1]-Lo[0])/N
+	la  = np.arange(La[0],La[-1],dLa)[-1::-1]
+	lo  = np.arange(Lo[0],Lo[-1],dLo)
+	per = interpolate.interp2d(Lo, La, Per)(lo,la)
+	return la, lo, per 
+
+
+
+

@@ -16,6 +16,7 @@ from glob import glob
 from obspy.taup import TauPyModel
 from seism import taup
 from mathFunc import fitexp
+from numba import jit
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -205,7 +206,7 @@ class config:
         print(tmpName)
         return fv(tmpName,'file')
     def quakeCorr(self,quakes,stations,byRecord=True,remove_resp=False,para={},minSNR=-1,
-        isLoadFv=False,fvD={},isByQuake=False,quakesRef=[]):
+        isLoadFv=False,fvD={},isByQuake=False,quakesRef=[],resDir = 'eventSac/'):
         corrL = []
         disp = self.getDispL()[0]
         if minSNR <0:
@@ -221,11 +222,13 @@ class config:
                     continue
             sacsL = quake.getSacFiles(stations,isRead = True,strL='Z',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
-                remove_resp=remove_resp,para=self.para0,isSave=False,isSkip=True)
+                remove_resp=remove_resp,para=self.para0,isSave=False,isSkip=True,\
+                resDir = resDir)
             #print('###',sacsL)
             sacNamesL = quake.getSacFiles(stations,isRead = False,strL='Z',\
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
-                remove_resp=remove_resp,para=self.para0,isSave=False,isSkip=True)
+                remove_resp=remove_resp,para=self.para0,isSave=False,isSkip=True,\
+                resDir = resDir)
             if self.isFromO:
                 for sacs in sacsL:
                     sacs[0] = seism.sacFromO(sacs[0])
@@ -239,7 +242,7 @@ class config:
                 srcSac=quake.name(s='_'),isCut=self.isCut,isFromO=self.isFromO,\
                 removeP=self.removeP,fvD=fvD,isLoadFv=isLoadFv,quakeName=quakeName,\
                 isByQuake=isByQuake)
-            print('###########',len(corrL),corrL[-1].modelFile)
+            print('###########',len(corrL))
         return corrL
     def modelCorr(self,count=1000,randDrop=0.3,noises=None,para={},minSNR=-1):
         corrL = []
@@ -332,29 +335,118 @@ class config:
     def loadQuakeNEFV(self,stations,quakeFvDir='models/QuakeNEFV'):
         fvD = {}
         quakeD={}
+
         for i in range(len(stations)):
             for j in range(len(stations)):
+                #dkm = stations[i].stations
                 #\YP.NE11\YP.NE11_YP.NE3A\Rayleigh
                 #print('models/QuakeNEFV/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(stations[i]['sta'],stations[j]['sta']))
-                file = glob('%s/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
-                    stations[i]['sta'],stations[j]['sta']))
+                file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
+                    stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
                 #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
+                if len(file)>0:
+                    #print(file[0])
+                    for f in file:
+                        getFVFromPairFile(f,fvD,quakeD)
+                else: 
+                    file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt.dat'%(quakeFvDir,\
+                     stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
+                    if len(file)>0:
+                        #print(file[0])
+                        for f in file:
+                            getFVFromPairFile(f,fvD,quakeD)
+                    else:
+                        print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
+                        file = glob('%s/%s.%s_%s.%s-pvt*'%(quakeFvDir,\
+                            stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
+                        if len(file)>0:
+                            #print(file[0])
+                            for f in file:
+                                getFVFromPairFile(f,fvD,quakeD)
+                #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
+                '''
+                if len(file)>1:
+                    #print(file[0])
+                    for f in file:
+                        getFVFromPairFile(f,fvD,quakeD)
+                else: 
+                    file = glob('%s/???%s/*_*%s/Rayleigh/pvt.dat'%(quakeFvDir,\
+                     stations[i]['sta'],stations[j]['sta']))
+                    if len(file)>1:
+                        #print(file[0])
+                        for f in file:
+                            getFVFromPairFile(f,fvD,quakeD)
+                    else:
+                        print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
+                        file = glob('%s/*.%s_*.%s-pvt*'%(quakeFvDir,\
+                            stations[i]['sta'],stations[j]['sta']))
+                        if len(file)>1:
+                            #print(file[0])
+                            for f in file:
+                                getFVFromPairFile(f,fvD,quakeD)
+                '''
+        return fvD,seism.QuakeL([quakeD[key] for key in quakeD])
+    def loadQuakeNEFVAv(self,stations,quakeFvDir='models/QuakeNEFV'):
+        fvD = {}
+        quakeD={}
+        
+        for i in range(len(stations)):
+            for j in range(len(stations)):
+                fvDPair = {}
+                #print('models/QuakeNEFV/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(stations[i]['sta'],stations[j]['sta']))
+                file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
+                    stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
+                #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
+                if len(file)>0:
+                    #print(file[0])
+                    for f in file:
+                        getFVFromPairFile(f,fvDPair,quakeD)
+                else: 
+                    file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt.dat'%(quakeFvDir,\
+                     stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
+                    if len(file)>0:
+                        #print(file[0])
+                        for f in file:
+                            getFVFromPairFile(f,fvDPair,quakeD)
+                    else:
+                        print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
+                        file = glob('%s/%s.%s_%s.%s-pvt*'%(quakeFvDir,\
+                            stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
+                        if len(file)>0:
+                            #print(file[0])
+                            for f in file:
+                                getFVFromPairFile(f,fvDPair,quakeD)
+                '''
+                file = glob('%s/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
+                    stations[j]['sta'],stations[i]['sta']))
                 if len(file)==1:
                     #print(file[0])
-                    getFVFromPairFile(file[0],fvD,quakeD)
+                    for f in file:
+                        getFVFromPairFile(f,fvDPair,quakeD)
                 else: 
                     file = glob('%s/???%s/*_*%s/Rayleigh/pvt.dat'%(quakeFvDir,\
                      stations[i]['sta'],stations[j]['sta']))
                     if len(file)==1:
                         #print(file[0])
-                        getFVFromPairFile(file[0],fvD,quakeD)
+                        for f in file:
+                            getFVFromPairFile(f,fvDPair,quakeD)
                     else:
                         print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
                         file = glob('%s/*.%s_*.%s-pvt*'%(quakeFvDir,\
                             stations[i]['sta'],stations[j]['sta']))
                         if len(file)==1:
                             #print(file[0])
-                            getFVFromPairFile(file[0],fvD,quakeD)
+                            for f in file:
+                                getFVFromPairFile(f,fvDPair,quakeD)
+                '''
+                if len(fvDPair) <5:
+                    continue
+                fvAv = averageFVL([fvDPair[key] for key in fvDPair])
+                fvAv.qc()
+                if len(fvAv.f)>2:
+                    fvD[stations[i]['net']+'.'+\
+                    stations[i]['sta']+'_'+stations[j]['net']\
+                    +'.'+stations[j]['sta']] = fvAv
         return fvD,seism.QuakeL([quakeD[key] for key in quakeD])
 
 
@@ -1321,7 +1413,9 @@ def compareFvD(fvD, fvDRef,resDir='results/'):
             plt.savefig(resDir+'compare_'+key+'.jpg',dpi=300)
             plt.close()
 
-
+def saveFvD(fvD,fileDir = './'):
+    for key in fvD:
+        fvD[key].save(fileDir+'/'+key+'-pvt.dat',mode = 'NEFile')
 
 
 class corr:
@@ -1464,7 +1558,7 @@ class corr:
                                   ])
             return corrType
     def outputTimeDis(self,FV,T=np.array([5,10,20,30,50,80,100,150,200,250,300]),sigma=2,\
-        byT=False,byA=False,rThreshold=0.1,set2One=False,move2Int=False):
+        byT=False,byA=False,rThreshold=0.1,set2One=False,move2Int=False,noY=False):
         self.T=T
         f  = 1/T
         t0 = self.timeL[0]
@@ -1473,6 +1567,8 @@ class corr:
 
         dim = [self.timeL.shape[0],T.shape[0]]
         timeDis = np.zeros(dim)
+        if noY:
+            return timeDis,t0
         f = f.reshape([1,-1])
         timeL = self.timeL.reshape([-1,1])
         v = FV(f,self.dis[0],self.dis[1])
@@ -1691,7 +1787,7 @@ class corrL(list):
         return '%d %s'%(len(self),str(self.timeDisKwarg))
     def getTimeDis(self,iL,fvD={},T=[],sigma=2,maxCount=512,noiseMul=0,byT=False,\
         byA=False,rThreshold=0.1,byAverage=False,set2One=False,move2Int=False,\
-        modelNameO=''):
+        modelNameO='',noY=False):
         #print('sigma',sigma)
         if len(iL)==0:
             iL=np.arange(len(self))
@@ -1734,7 +1830,7 @@ class corrL(list):
             
             tmpy,t0=self[i].outputTimeDis(fvD[modelName],\
                 T=T,sigma=sigma,byT=byT,byA=byA,rThreshold=rThreshold,set2One=set2One,\
-                move2Int=move2Int)
+                move2Int=move2Int,noY=noY)
             iP,iN = self.ipin(t0,self[i].fs)
             y[ii,iP:maxCount+iN,0,:] =tmpy[-iN:maxCount-iP]
             x[ii,iP:maxCount+iN,0,0] = np.real(self[i].xx.\
@@ -1762,12 +1858,44 @@ class corrL(list):
         self.dDisL      = dDisL
         self.deltaL     = deltaL
         #print(x[0,1500,0])
+    @jit
     def getV(self,yout,isSimple=True,D=0.15,isLimit=False,isFit = False):
+        #print(isSimple)
         if isSimple:
-            pos = yout.argmax(axis=1)[:,0]
-            prob= yout.max(axis=1)[:,0]
+            maxDis=self.dDisL.max()
+            minDis=self.dDisL.min()
+            tmin = minDis/6-5
+            tmax = maxDis/2+10
+            i0   = int(max(1,tmin/self.deltaL[0]))
+            i1   = int(min(yout.shape[1]-1,tmax/self.deltaL[0]))
+            print('find in ',i0,i1)
+            pos = yout[:,i0:i1,0,:].argmax(axis=1)+i0
+            prob = pos.astype(np.float64)*0
+            for i in range(pos.shape[0]):
+                for j in range(pos.shape[1]):
+                    prob[i,j] = yout[i,pos[i,j],0,j]
+            #prob= yout.max(axis=1)[:,0]
             time= self.t0L.reshape([-1,1])+pos*self.deltaL.reshape([-1,1])
             v   = self.dDisL.reshape([-1,1])/(time)
+            if 'modelNameO' in self.timeDisKwarg:
+                if self.timeDisKwarg['modelNameO'] !='':
+                    fvD = self.timeDisArgv[0]
+                    T = self.timeDisArgv[1]
+                    modelFile = self.timeDisKwarg['modelNameO']
+                    fv=fvD[modelFile]
+                    vL=fv(1/T)
+                    minVL = (1-D)*vL
+                    maxVL = (1+D)*vL
+                    minVM = minVL.reshape([1,-1])
+                    maxVM = maxVL.reshape([1,-1])
+                    prob *= np.sign(np.sign(-(v-minVM)*(v-maxVM))-0.5)/2+1/2
+                    '''
+                    for i in range(pos.shape[0]):
+                        for j in range(pos.shape[1]):
+                            if v[i,j]<minVM[0,j] or v[i,j]>maxVM[0,j]:
+                                prob[i,j] = 0
+                    '''
+                    #prob[v>maxVM] *= 0
         else:
             if isLimit:
                 yout *= (self.y.max(axis=1,keepdims=True)>0.5)
@@ -1777,17 +1905,27 @@ class corrL(list):
             prob = np.zeros([N,M])
             fvD = self.timeDisArgv[0]
             T = self.timeDisArgv[1]
+            isO = False
+            if 'modelNameO' in self.timeDisKwarg:
+                if self.timeDisKwarg['modelNameO'] !='':
+                    modelFile = self.timeDisKwarg['modelNameO']
+                    fv=fvD[modelFile]
+                    vL=fv(1/T)
+                    minVL = (1-D)*vL
+                    maxVL = (1+D)*vL
+                    isO = True
             for i in range(N):
                 index = self.iL[i]
-                modelFile = self[index].modelFile
-                if 'modelNameO' in self.timeDisKwarg:
-                    if self.timeDisKwarg['modelNameO'] !='':
-                        modelFile = self.timeDisKwarg['modelNameO']
-                fv=fvD[modelFile]
+                if not isO:
+                    modelFile = self[index].modelFile
+                    fv=fvD[modelFile]
+                    vL=fv(1/T)
+                    minVL = (1-D)*vL
+                    maxVL = (1+D)*vL
                 for j in range(M): 
-                    v0 = fv(1/T[j])
-                    minV = (1-D)*v0
-                    maxV = (1+D)*v0
+                    v0 = vL[j]
+                    minV = minVL[j]
+                    maxV = maxVL[j]
                     maxT = self.dDisL[i]/minV
                     minT = self.dDisL[i]/maxV
                     i0 = max(0,int((minT - self.t0L[0])/self.deltaL[i]))
@@ -1795,8 +1933,10 @@ class corrL(list):
                     if i0>=i1:
                         continue
                     pos      = yout[i,i0:i1,0,j].argmax()+i0
-                    prob[i,j]= yout[i,i0:i1,0,j].max()
+                    prob[i,j]= yout[i,pos,0,j]
                     if prob[i,j]>0.5 and isFit :
+                        pass
+                        '''
                         try:
                             posNew = fitexp(yout[i,i0:i1,0,j])+i0.astype(np.float32)
                         except:
@@ -1804,6 +1944,7 @@ class corrL(list):
                         else:
                             if np.abs(posNew-pos)<0.5:
                                 pos = posNew
+                        '''
                     time     = self.t0L[i]+pos*self.deltaL[i]
                     v[i,j]   = self.dDisL[i]/time
         return v,prob
@@ -1949,9 +2090,74 @@ class corrL(list):
                     f.write('%f\n'%(1/T[ii]))
                 for ii in vIndex:
                     f.write('%f\n'%v[i][ii])
-
-
-
+    def getAndSaveOld(self,model,fileName,stations,isPlot=False,isSimple=True,\
+        D=0.2,isLimit=False,isFit = False,minProb=0.7):
+        N = len(self)
+        if 'T' in self.timeDisKwarg:
+            T = self.timeDisKwarg['T']
+        else:
+            T = self.timeDisArgv[1]
+        resDir = os.path.dirname(fileName)
+        if not os.path.exists(resDir):
+            os.makedirs(resDir)
+        M = len(T)
+        v = np.zeros([N,M])
+        v0= np.zeros([N,M])
+        prob=np.zeros([N,M])
+        prob0=np.zeros([N,M])
+        for i0 in range(0,N,1000):
+            i1 = min(i0+1000,N)
+            print(i0,i1)
+            x, y, t= self(np.arange(i0, i1))
+            print('predict')
+            Y=model.predict(x)
+            print('calV')
+            v[i0:i1],prob[i0:i1]=self.getV(Y,isSimple=isSimple,\
+                D=D,isLimit=isLimit,isFit=isFit)
+            #v0[i0:i1],prob0[i0:i1]=self.getV(y)
+        self.saveV(v,prob,T, np.arange(N),stations,resDir =resDir,minProb=minProb)
+        if isPlot:
+            '''
+            plt.close()
+            plt.plot(v.transpose(),1/T,'k',linewidth=0.1,alpha=0.3)
+            plt.gca().semilogy()
+            plt.xlim([2.5,6])
+            plt.savefig(fileName+'.jpg',dpi=300)
+            plt.close()
+            plt.plot(v.transpose()-v0.transpose(),1/T,'k',linewidth=0.1,alpha=0.3)
+            plt.gca().semilogy()
+            plt.xlim([2.5,6])
+            plt.savefig(fileName+'_dv.jpg',dpi=300)
+            '''
+            dv = np.abs(v-v0)
+            dvO = v-v0
+            plt.close()
+            for i in range(dv.shape[0]):
+                indexL = validL(dv[i],prob[i],minProb=minProb,minV=-1,maxV=2)
+                if np.random.rand()<0.1:
+                        print('validL: ',indexL)
+                for iL in indexL:
+                    iL = np.array(iL).astype(np.int)
+                    plt.plot(v[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
+            plt.xlim([2,7])
+            plt.gca().semilogy()
+            plt.xlabel('v/(m/s)')
+            plt.ylabel('f/Hz')
+            plt.savefig(fileName+'.jpg',dpi=300)
+            plt.close()
+            for i in range(dv.shape[0]):
+                indexL = validL(dv[i],prob[i],minProb=minProb,minV=-1,maxV=2)
+                if np.random.rand()<0.1:
+                        print('validL: ',indexL)
+                for iL in indexL:
+                    iL = np.array(iL).astype(np.int)
+                    plt.plot(dvO[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
+            plt.xlim([-1,1])
+            plt.xlabel('dv/(m/s)')
+            plt.ylabel('f/Hz')
+            plt.gca().semilogy()
+            plt.savefig(fileName+'_dv.jpg',dpi=300)
+            plt.close()
     def getAndSave(self,model,fileName,stations,isPlot=False,isSimple=True,\
         D=0.2,isLimit=False,isFit = False,minProb=0.7):
         N = len(self)
@@ -2163,6 +2369,8 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
     print((SNR>minSNR).sum(),minSNR,isLoadFv)
     iL = distL.argsort()
     for ii in range(N):
+        if i%25 == 0:
+            print('handle**********************',ii)
         for jj in range(ii):
             i = iL[ii]
             j = iL[jj]
@@ -2195,8 +2403,9 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                 maxD = 250
                 maxTheta = 10
                 if np.random.rand()<0.01:
-                    print(disDegree(minDis,maxD=maxD,maxTheta=maxTheta),\
-                        disDegree(dis01,maxD=maxD,maxTheta=maxTheta))
+                    pass
+                    #print(disDegree(minDis,maxD=maxD,maxTheta=maxTheta),\
+                    #    disDegree(dis01,maxD=maxD,maxTheta=maxTheta))
                 thetaE = max(10,disDegree(minDis,maxD=maxD,maxTheta=maxTheta))#3,10
                 theta01= max(10,disDegree(dis01,maxD=maxD,maxTheta=maxTheta))#3,10
                 if np.abs((az[0]-az[1]+thetaE)%360)>2*thetaE:
@@ -2215,7 +2424,7 @@ def corrSacsL(d,sacsL,sacNamesL,dura=0,M=np.array([0,0,0,0,0,0,0])\
                modelFile1=quakeName+'_'+modelFile1
 
             if modelFile0  in fvD:
-                print(modelFile0,modelFile1)
+                #print(modelFile0,modelFile1)
                 modelFile = modelFile0
             if modelFile1  in fvD:
                 modelFile = modelFile1

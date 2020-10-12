@@ -724,7 +724,25 @@ import seism
 #quakes0.write('phaseLPickCEA')
 #+seism.StationList('stations/NEsta_all.locSensorDas')
 #quakes  = seism.QuakeL('phaseLPickCEA')
+'''
+popL = []
+for i in range(len(stations)):
+    station = stations[i]
+    if station['compBase'] =='SH':
+        popL.append(i)
+for pop in popL[-1::-1]:
+    stations.pop(pop)
 
+numL = [[] for sta in stations]
+for i in range(len(stations)):
+    for j in range(len(stations)):
+        if stations[i].dist(stations[j])< 50:
+            numL[i].append(j)
+moreL = []
+for i in range(len(stations)):
+    if len(numL[i])>3:
+        moreL.append(i)
+'''
 para={\
 'delta0' :1,
 'freq'   :[-1,-1],#[0.8/3e2,0.8/2],
@@ -737,12 +755,12 @@ quakes.cutSac(stations,bTime=-1500,eTime =12300,\
 
 #stations = seism.StationList('stations/NEsta_all.locSensorDas')
 stations = seism.StationList('stations/CEA.sta_sel')
-#stations = seism.StationList('stations/CEA.sta_know')
+#stations = seism.StationList('stations/CEA.sta_know_few')
 stations.getInventory()
 quakes  = seism.QuakeL('phaseLCEAV2_more')
 quakes  = seism.QuakeL('phaseLPickCEA')
 quakes.sort()
-for quake in quakes[:]:
+for quake in quakes[2::3]:
     print(quake)
     a=quake.getSacFiles(stations,isRead=True,remove_resp=True,\
         isPlot=False,isSave=True,para={'freq':[-1,-1],\
@@ -868,5 +886,19 @@ for quake in quakes0:
 import run
 
 R  = run.run()
+R.calResOneByOne()
 R.loadCorr()
 R.train()
+
+disL = []
+N = len(stations)
+for i in range(N):
+    for j in range(i):
+        disL.append(stations[i].dist(stations[j]))
+
+
+distL=[]
+for corr in R.corrL:
+    distL.append(corr.dDis)
+最大1800
+最小200

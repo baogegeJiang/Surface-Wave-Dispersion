@@ -67,8 +67,8 @@ class lossFuncSoft:
     def __call__(self,y0,yout0):
         y1 = 1-y0
         yout1 = 1-yout0
-        return -K.mean((self.w*y0*K.log(yout0+1e-8)+y1*K.log(yout1+1e-8))*\
-            K.max(y0,axis=1, keepdims=True),\
+        return -K.mean((self.w*y0*K.log(yout0+1e-13)+y1*K.log(yout1+1e-13))*\
+            (K.max(y0,axis=1, keepdims=True)*0.95+0.05),\
             axis=-1)
 
 class lossFuncSoftBak:
@@ -626,7 +626,9 @@ class fcnConfig:
         self.featureL      = [32,32,48,48,64,64,128]
         self.featureL      = [32,48,48,64,64,96,128]
         self.featureL      = [32,32,32,32,48,64,96,128]
-        self.featureL      = [32,32,32,48,48,64,128]
+        self.featureL      = [32,32,32,48,48,64,128]##best
+        self.featureL      = [24,24,32,32,48,48,64]#1.8
+        #self.featureL      = [16,16,24,24,32,32,48]#0.9
         #self.featureL      = [80,120,160,200,200,250,300]#more +++
         #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
         self.strideL       = [(2,1),(4,1),(4,1),(4,1),(4,1),(4,1),(6,1),\
@@ -693,7 +695,9 @@ class model(Model):
         self.compile(loss=config.lossFunc, optimizer='Nadam')
         return model
     def predict(self,x):
+        print('inx')
         x = self.inx(x)
+        print('inx done')
         return super().predict(x).astype(np.float16)
     def fit(self,x,y,batchSize=None):
         x=self.inx(x)
@@ -703,7 +707,6 @@ class model(Model):
         return super().fit(x ,y,batch_size=batchSize)
     def plot(self,filename='model.png'):
         plot_model(self, to_file=filename)
-
     def inx(self,x):
         #return x/x.max(axis=(1,2,3),keepdims=True)
         '''
@@ -717,7 +720,6 @@ class model(Model):
         timeN  = (x!=0).sum(axis=1,keepdims=True).astype(np.float32)
         timeN *= 1+0.2*(np.random.rand(*timeN.shape).astype(np.float32)-0.5)
         x/=(x.std(axis=(1,2),keepdims=True))*(timeN0/timeN)**0.5
-        
         return x
     def __call__(self,x):
         return super(Model, self).__call__(K.tensor(self.inx(x)))
