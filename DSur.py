@@ -242,7 +242,7 @@ class Model:
 			plt.clim(vmin=-np.abs(per[midLaN:-midLaN,midLoN:-midLoN])\
 				.max(),vmax=np.abs(per[midLaN:-midLaN,midLoN:-midLoN]\
 					).max())
-			plt.clim(vmin=-8/100,vmax=-8/100)			#plt.pcolor(self.lo,self.la,-self.v[:,:,i],cmap='bwr')
+			#plt.clim(vmin=-8/100,vmax=+8/100)			#plt.pcolor(self.lo,self.la,-self.v[:,:,i],cmap='bwr')
 			plt.colorbar()
 			plt.title('%f_%f.jpg'%(self.z[i],mean))
 			plt.savefig('%s/%f.jpg'%(resDir,self.z[i]),dpi=200)

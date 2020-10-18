@@ -1093,8 +1093,17 @@ class fv:
         else:
             vL =  self.interp(f)
         #print((np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1).shape)
-        dfR = (np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1)/f
-        vL[dfR>threshold]=vL[dfR>threshold]*0+1e-8
+        df=f.reshape([-1,1])- self.f.reshape([1,-1])
+        dfT = 1/df
+        dfT[df==0]   =1e18 +dfT[df==0]*0
+        dfRP         = 1/(dfT.max(axis=1))/f
+        dfRP[dfRP<0] =dfRP[dfRP<0]*0+1e18
+        dfT[df==0]   =-1e18+dfT[df==0]*0
+        dfRN         = 1/((-dfT).max(axis=1))/f
+        dfRN[dfRN<0] =dfRN[dfRN<0]*0+1e18 
+        #dfR = (np.abs()).min(axis=1)/f
+        vL[dfRP>threshold]=vL[dfRP>threshold]*0+1e-8
+        vL[dfRN>threshold]=vL[dfRN>threshold]*0+1e-8
         return vL.reshape(shape0)
     def save(self,filename,mode='num'):
         if not os.path.exists(os.path.dirname(filename)):
@@ -1130,14 +1139,15 @@ class fv:
             self.interp = self.genInterp()
     def limit(self,self1,threshold=2):
         v    = self(self1.f)
-        std  = self.STD(self.f)
+        std  = self.STD(self1.f)
         vmin = v-threshold*std
         vmax = v+threshold*std
         valid= -(self1.v - vmin)*(self1.v - vmax)
         self1.f   = self1.f[valid>0]
         self1.v   = self1.v[valid>0]
         self1.std = self1.std[valid>0]
-        self1.genInterp()
+        if len(self1.f)>2:
+            self1.genInterp()
 
 
 def getFVFromPairFile(file,fvD={},quakeD={}):
@@ -1229,6 +1239,7 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
                 continue
             f = np.zeros(fNum)
             v = np.zeros(fNum)
+            std = np.zeros(fNum)
             stat= 'f'
             i =0
             continue
@@ -1242,7 +1253,10 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
                 i=0
                 continue
         if stat=='v':
-            v[i]=float(line)
+            lineS = line.split()
+            v[i]=float(lineS[0])
+            if len(lineS)>1:
+                std[i] = float(lineS[1])
             i+=1
             if i ==fNum:
                 stat ='next'
@@ -1261,7 +1275,7 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
                 key='%s_%s'%(name,pairKey)
                 if len(f)<2:
                     continue
-                fvD[key]=fv([f,v])
+                fvD[key]=fv([f,v,std])
                 
                 continue
         print(len(quakeD.keys()))
@@ -1412,6 +1426,56 @@ def compareFvD(fvD, fvDRef,resDir='results/'):
             
             plt.savefig(resDir+'compare_'+key+'.jpg',dpi=300)
             plt.close()
+class  areas:
+    """docstring for  areas"""
+    def __init__(self, laL=[40,35,35,25,30,45],\
+        loL=[85,95,110,110,120,125],stations=[]):
+        self.la = np.array(laL)
+        self.lo = np.array(loL)
+        N = len(self.la)
+        self.fvM = [[[]for j in range(N)] for i in range(N)]
+        self.avM = [[None for j in range(N)] for i in range(N)]
+        self.stations = stations
+        self.N = N
+    def R2(self,la,lo):
+        R2 = (self.la - la)**2+(self.lo - lo)**2
+        return R2
+    def index(self,la,lo):
+        return self.R2(la,lo).argmin()
+    def Index(self,staStr):
+        sta = self.stations.Find(staStr)
+        return self.index(sta['la'],sta['lo'])
+    def INDEX(self,key):
+        staStr0,staStr1=key.split('_')
+        i0  = self.Index(staStr0)
+        i1  = self.Index(staStr1)
+        return i0, i1
+    def insert(self,key,fv):
+        i0,i1 = self.INDEX(key)
+        self.fvM[i0][i1].append(fv)
+        if i0!=i1:
+            self.fvM[i1][i0].append(fv)
+    def Insert(self,fvD):
+        for key in fvD:
+            self.insert(key,fvD[key])
+    def getAv(self):
+        for i in range(self.N):
+            for j in range(self.N):
+                if len(self.fvM[i][j])>30:
+                    self.avM[i][j] = averageFVL(self.fvM[i][j])
+    def limit(self,fvD,threshold=2):
+        keys = fvD.keys()
+        for key in keys:
+            i0,i1 = self.INDEX(key)
+            if isinstance(self.avM[i0][i1],type(None)):
+                fvD.pop(key)
+            else:
+                self.avM[i0][i1].limit(fvD[key],threshold=threshold)
+
+
+
+
+
 
 def saveFvD(fvD,fileDir = './'):
     for key in fvD:
@@ -1787,7 +1851,7 @@ class corrL(list):
         return '%d %s'%(len(self),str(self.timeDisKwarg))
     def getTimeDis(self,iL,fvD={},T=[],sigma=2,maxCount=512,noiseMul=0,byT=False,\
         byA=False,rThreshold=0.1,byAverage=False,set2One=False,move2Int=False,\
-        modelNameO='',noY=False):
+        modelNameO='',noY=False,randMove=False):
         #print('sigma',sigma)
         if len(iL)==0:
             iL=np.arange(len(self))
@@ -1837,6 +1901,7 @@ class corrL(list):
                 reshape([-1]))[-iN:maxCount-iP]
             x[ii,iP:maxCount+iN,0,1] = np.imag(self[i].xx.\
                 reshape([-1]))[-iN:maxCount-iP]
+            t0L[ii]=t0-iN/self[i].fs-iP/self[i].fs
             dt = np.random.rand()*5-2.5
             iP,iN = self.ipin(t0+dt,self[i].fs)
             x[ii,iP:maxCount+iN,0,2] = self[i].x0.\
@@ -1845,7 +1910,22 @@ class corrL(list):
             x[ii,iP:maxCount+iN,0,3]       = self[i].x1.\
             reshape([-1])[-iN:maxCount-iP]
             #print('###',t0,dt,iP,iN)
-            t0L[ii]=0
+            if False:# randMove:
+                dT = (np.random.rand(1)-0.5)*2*self[i].dDis/4*0.1
+                if np.random.rand()<0.001:
+                    print('random ',dT,self[i].dDis)
+                dN = int(dT*self[i].fs)
+                t0L[ii]= -dN/self[i].fs
+                if dN>0:
+                    for channel in [0,1,2]:
+                        x[ii,dN:,0,channel] = x[ii,:-dN,0,channel]
+                        x[ii,:dN,0,channel] = 0
+                    y[ii,dN:,0,0] = y[ii,:-dN,0,0]
+                if dN<0:
+                    for channel in [0,1,2]:
+                        x[ii,:dN,0,channel] = x[ii,-dN:,0,channel]
+                        x[ii,dN:,0,channel] =0
+                    y[ii,:dN,0,0] = y[ii,-dN:,0,0]
             dDisL[ii] = self[i].dDis
             deltaL[ii]= self[i].timeL[1]-self[i].timeL[0]
         xStd = x.std(axis=1,keepdims=True)
@@ -2018,7 +2098,7 @@ class corrL(list):
                 for ii in vIndex:
                     f.write('%f\n'%(1/T[ii]))
                 for ii in vIndex:
-                    f.write('%f\n'%v[i][ii])
+                    f.write('%f %f\n'%(v[i][ii],-prob[i][ii]))
     def saveVByPair(self,v,prob,T,iL=[],stations=[], minProb= 0.7,resDir ='models/predict/'):
         '''
         if len(iL) ==0:
@@ -2239,7 +2319,7 @@ class corrL(list):
             for i in range(dv.shape[0]):
                 indexL = validL(dv[i],prob[i],minProb=minProb,minV=-1,maxV=2)
                 if np.random.rand()<0.1:
-                        print('validL: ',indexL)
+                    print('validL: ',indexL)
                 for iL in indexL:
                     iL = np.array(iL).astype(np.int)
                     plt.plot(dvO[i,iL],1/T[iL],'k',linewidth=0.1,alpha=0.3)
@@ -2252,7 +2332,7 @@ class corrL(list):
             
 
     def ipin(self,dt,fs):
-        i0 = int(dt*fs)
+        i0 = round(dt*fs)
         iP = 0 
         iN = 0
         if i0>0:

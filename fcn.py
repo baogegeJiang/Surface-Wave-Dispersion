@@ -58,6 +58,12 @@ class Swish(Activation):
         self.__name__ = 'swish'
 get_custom_objects().update({'swish': Swish(swish)})
 #传统的方式
+w0 = np.ones(50)
+w0[-10:] = 1.5
+w0[-5:]  = 2
+#w0/=w0.mean()
+
+channelW = K.variable(w0.reshape([1,1,1,-1]))
 class lossFuncSoft:
     # 当有标注的时候才计算权重
     # 这样可以保持结构的一致性
@@ -68,7 +74,7 @@ class lossFuncSoft:
         y1 = 1-y0
         yout1 = 1-yout0
         return -K.mean((self.w*y0*K.log(yout0+1e-13)+y1*K.log(yout1+1e-13))*\
-            (K.max(y0,axis=1, keepdims=True)*0.95+0.05),\
+            (K.max(y0,axis=1, keepdims=True)*1+0.0)*channelW,\
             axis=-1)
 
 class lossFuncSoftBak:
@@ -626,8 +632,10 @@ class fcnConfig:
         self.featureL      = [32,32,48,48,64,64,128]
         self.featureL      = [32,48,48,64,64,96,128]
         self.featureL      = [32,32,32,32,48,64,96,128]
-        self.featureL      = [32,32,32,48,48,64,128]##best
-        self.featureL      = [24,24,32,32,48,48,64]#1.8
+        self.featureL      = [16,32,48,64,128,256,512]#high
+        self.featureL      = [24,32,48,64,128,256,512]
+        #self.featureL      = [32,32,32,48,48,64,128]##best3.2
+        #self.featureL      = [24,24,32,32,48,48,64]#1.8
         #self.featureL      = [16,16,24,24,32,32,48]#0.9
         #self.featureL      = [80,120,160,200,200,250,300]#more +++
         #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
@@ -684,6 +692,7 @@ class model(Model):
         self.config = config
         self.Metrics = metrics
         self.channelList = channelList
+        self.compile(loss=self.config.lossFunc, optimizer='Nadam')
         if len(weightsFile)>0:
             model.load_weights(weightsFile)
         print(self.summary())

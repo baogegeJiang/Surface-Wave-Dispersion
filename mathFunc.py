@@ -329,7 +329,7 @@ def QC(data):
     mData = np.median(data)
     d = np.abs(data - mData)
     lqr = stats.iqr(data)
-    threshold = lqr*1.5
+    threshold = lqr*2
     if (d>threshold).sum()==0:
         return data.mean(),data.std(),len(data)
     else:

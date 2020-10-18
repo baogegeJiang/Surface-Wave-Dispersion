@@ -142,6 +142,7 @@ program SurfAniso
         integer Nre, NreVs, narVs,nBatch
         integer count
         integer dallM
+        real dA
         ! open output for LSMR
         startT=OMP_get_wtime()
         nout=36
@@ -205,7 +206,6 @@ program SurfAniso
         write(*,'(f8.1)')weightGcs
         write(*,*)'damping'
         write(*,'(f8.1)')damp
-
         ! write(*,*)' Regularization Type: (T) 1st order Tikhonov ;(F) Gaussian'
         ! write(*,*) 'correlation length: XY, ZZ (km)'
         ! write(*,'(f8.1)')LcorrXY, LcorrZZ
@@ -224,7 +224,8 @@ program SurfAniso
             stop 'Can only deal with Rayleigh wave phase velocity data!'
         endif
         read(10,*) nBatch
-
+        weightVs = weightVs/sqrt(real(nBatch))
+        weightGcs = weightGcs/sqrt(real(nBatch))
 	    write(logfile,'(a,a)') trim(inputfile),'_inv.log'
         !open(66,file=logfile,action='write')
         open(66, file=logfile)
@@ -400,6 +401,13 @@ program SurfAniso
         do iter=1, maxiter
         iter_mod=mod(iter, 2)
         count = mod(iter, nBatch)+1
+        dA = 1/REAL(nBatch)*(3*REAL(nBatch)/(4*REAL(nBatch+iter))+1/4)+(1+REAL(nBatch))/(REAL(iter)**2+REAL(nBatch))
+        if(mod(iter, nBatch).eq.0) then
+            if (nBatch.gt.10) then
+                dA = 0
+            endif
+        endif
+        write(6,*)'dA',dA
         sczf = sczfL(count,:,:)
         scxf = scxfL(count,:,:)
         periods = periodsL(count,:,:)
@@ -512,12 +520,12 @@ program SurfAniso
         !     enddo
         ! For Yunnan.
         call CalDdatSigma(dall, obst, cbst, sigmaT, meandeltaT)
+        if (nar > maxnar) stop 'increase sparsity fraction(spfra)'
 	    do i=1,dall
             datweight(i)=1/sigmaT(i)
             cbst(i)=cbst(i)*datweight(i)
         enddo
-
-
+        write(6,*)'nar maxnar',nar,maxnar
         do i = 1,nar
             rw(i) = rw(i)*datweight(iw(1+i))
         enddo
@@ -641,7 +649,7 @@ program SurfAniso
             if (pertV.ge.0.500) pertV=0.500
             if (pertV.le.-0.500) pertV=-0.500
             if (abs(pertV)<1e-5) pertV=0.0
-            dv((k-1)*(nx-2)*(ny-2)+(j-1)*(nx-2)+i) = pertV/REAL(nBatch)
+            dv((k-1)*(nx-2)*(ny-2)+(j-1)*(nx-2)+i) = pertV*dA
             vsf(i+1,j+1,k)=vsf(i+1,j+1,k)+dv((k-1)*(nx-2)*(ny-2)+(j-1)*(nx-2)+i)
 
             if(vsf(i+1,j+1,k).lt.Minvel) vsf(i+1,j+1,k)=Minvel
@@ -660,7 +668,7 @@ program SurfAniso
             if (pertV.ge. 0.5)   pertV=0.5
             if (pertV.le.-0.5)   pertV=-0.5
             if (abs(pertV)<1e-5) pertV=0.0
-            dv((k-1)*(nx-2)*(ny-2)+(j-1)*(nx-2)+i) = pertV/REAL(nBatch)
+            dv((k-1)*(nx-2)*(ny-2)+(j-1)*(nx-2)+i) = pertV*dA
             vsf(i+1,j+1,k)=vsf(i+1,j+1,k)+dv((k-1)*(nx-2)*(ny-2)+(j-1)*(nx-2)+i)
 
             if(vsf(i+1,j+1,k).lt.Minvel) vsf(i+1,j+1,k)=Minvel
