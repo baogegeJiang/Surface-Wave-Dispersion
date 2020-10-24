@@ -108,8 +108,6 @@ class DS:
 					f.write('# %.3f %.3f %d 2 0\n'%(la,lo,j+1))
 					for k in range(len(indexL[i])):
 						kk = indexL[i][k]
-						if distM[k,j]>1801:
-							continue
 						if vL[k]>2 and vL[k]<6:
 							la,lo=self.config.findLaLo(stations[kk]['la'],\
 							stations[kk]['lo'])
@@ -122,14 +120,15 @@ class DS:
 		nz=len(dep1)
 		#ends
 		vs1=np.zeros(nz)
-		model = modelTK()
+		#model = modelTK()
 		modelPrem = loadModel()
 		if len(mod) ==0:
 			mod=np.zeros((nx,ny,nz))
 			for k in range(nz):
 				for j in range(ny):
 					for i in range(nx):
-						v= float(model(dep1[k],la[i],lo[j]))
+						v=1
+						#v= float(model(dep1[k],la[i],lo[j]))
 						if False:# not np.isnan(v):
 							mod[i,j,k] = v
 						else:

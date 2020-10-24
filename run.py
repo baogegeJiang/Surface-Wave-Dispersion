@@ -60,7 +60,7 @@ class runConfig:
 		            'byRecordL'   : [False],
 		            'maxCount'    : 4096*3,\
 		            'trainDir'    : 'predict/1015_0.95_0.05_3.2_randMove_W+/',
-		            'resDir'      : 'results/1013_YNSC_V3/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+		            'resDir'      : '/fastDir/results/1015_all_V?',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
 		            'refModel'    : 'models/prem',\
 		            'sacPara'     : sacPara,\
 		            'dConfig'     : dConfig,\
@@ -276,7 +276,7 @@ class run:
 		indexL,vL = d.fvD2fvL(self.fvAvGet,self.stations[-1::-1],1/tSur)
 		self.indexL = indexL
 		self.vL   = vL
-		DS.test(vL,indexL,self.stations)
+		DS.test(vL,indexL,self.stations[-1::-1])
 	def loadAndPlot(self):
 		self.DS.loadRes()
 		self.DS.plotByZ()
@@ -298,8 +298,8 @@ paraOrdos={ 'quakeFileL'  : ['phaseLPickCEA'],\
     'surPara'     : { 'nxyz':[40,47,0], 'lalo':[43,102],#[40,60,0][55,108]\
                     'dlalo':[0.3,0.3], 'maxN':100,#[0.5,0.5]\
 					'kmaxRc':0,'rcPerid':[],'threshold':0.01\
-					,'maxIT':16,'nBatch':8,'smoothDV':20,'smoothG':40},\
-	'runDir'      : 'DS/1015_CEA160_Ordos/',#_man/',\
+					,'maxIT':8,'nBatch':4,'smoothDV':20,'smoothG':40},\
+	'runDir'      : 'DS/1015_CEA160_Ordos_0.03/',#_man/',\
 	'gpuIndex'    : 0,\
 	'gpuN'        : 1,\
 	'lalo'        :[32,42,103,115],#[20,34,96,108][-1,180,-1,180]*******,\
@@ -351,11 +351,11 @@ paraAll={ 'quakeFileL'  : ['phaseLPickCEA'],\
                     'dlalo':[0.8,0.8], 'maxN':800,#[0.5,0.5]\
 					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 3,\
 					'maxIT':100,'nBatch':100,'smoothDV':80,'smoothG':160},\
-	'runDir'      : 'DS/1015_CEA160_Ordos/',#_man/',\
+	'runDir'      : 'DS/1015_CEA160_all/',#_man/',\
 	'gpuIndex'    : 1,\
 	'gpuN'        : 2,\
 	'lalo'        :[-1,180,-1,180],#[20,34,96,108][]*******,\
-	'threshold'   :0.03,\
+	'threshold'   :0.05,\
 	'minProb'     :0.5,\
 	'minP'        :0.5}
 

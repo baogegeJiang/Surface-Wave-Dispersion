@@ -1409,7 +1409,7 @@ def plotFVM(fvM,fvD={},resDir='test/',isDouble=False):
         plotFVL(fvL,fvRef,filename=filename)
     
 
-def plotFVL(fvL,fvRef=None,filename='test.jpg'):
+def plotFVL(fvL,fvRef=None,filename='test.jpg',thresholdL=[2]):
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
     plt.close()
@@ -1417,15 +1417,18 @@ def plotFVL(fvL,fvRef=None,filename='test.jpg'):
         if isinstance(fvL,dict):
             fv = fvL[fv]
         if len(fv.f)>2:
-            plt.plot(fv.v,fv.f,'k',linewidth=0.3)
+            plt.plot(fv.v,fv.f,'k',linewidth=0.1,alpha=0.2)
     if fvRef !=None:
-        plt.plot(fvRef.v,fvRef.f,'r',linewidth=0.3)
+        for threshold in thresholdL:
+            plt.plot(fvRef.v-threshold*fvRef.std,fvRef.f,'-.r',linewidth=0.5)
+            plt.plot(fvRef.v+threshold*fvRef.std,fvRef.f,'-.r',linewidth=0.5)
+        plt.plot(fvRef.v,fvRef.f,'r',linewidth=0.5)
     figSet()
     plt.savefig(filename,dpi=200)
     plt.close()
 
 def figSet():
-    plt.xlim([2,7])
+    plt.xlim([3,5])
     plt.ylim([1/120,1/10])
     plt.gca().semilogy()
     plt.xlabel('v/(km/s)')
