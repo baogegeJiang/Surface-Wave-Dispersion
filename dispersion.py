@@ -17,6 +17,9 @@ from obspy.taup import TauPyModel
 from seism import taup
 from mathFunc import fitexp
 from numba import jit
+from sklearn import cluster
+import multiprocessing
+from multiprocessing import Pool
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -313,7 +316,7 @@ class config:
                 byRecord=byRecord,minDist=self.minDist,maxDist=self.maxDist,\
                 remove_resp=remove_resp,para=self.para0)
         return seism.Noises(sacsL,mul=mul)
-    def loadNEFV(self,stations,fvDir='models/NEFV'):
+    def loadNEFV(self,stations,fvDir='models/NEFV',mode='NEFile'):
         fvD = {}
         fvFileD ={}
         fvFileL = glob('%s/*avgpvt'%(fvDir))
@@ -328,7 +331,7 @@ class config:
                 pairKey = '%s.%s_%s.%s'%(stations[i]['net'],stations[i]['sta'],\
                     stations[j]['net'],stations[j]['sta'])
                 if pairKey in fvFileD:
-                    fvD[pairKey] = fv(fvFileD[pairKey],mode='NEFile')
+                    fvD[pairKey] = fv(fvFileD[pairKey],mode=mode)
                     if (i*j)%100==0:
                         print(pairKey)
         return fvD
@@ -386,70 +389,93 @@ class config:
                                 getFVFromPairFile(f,fvD,quakeD)
                 '''
         return fvD,seism.QuakeL([quakeD[key] for key in quakeD])
-    def loadQuakeNEFVAv(self,stations,quakeFvDir='models/QuakeNEFV'):
-        fvD = {}
-        quakeD={}
-        
-        for i in range(len(stations)):
-            for j in range(len(stations)):
-                fvDPair = {}
-                #print('models/QuakeNEFV/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(stations[i]['sta'],stations[j]['sta']))
-                file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
-                    stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
-                #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
-                if len(file)>0:
-                    #print(file[0])
-                    for f in file:
-                        getFVFromPairFile(f,fvDPair,quakeD)
-                else: 
-                    file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt.dat'%(quakeFvDir,\
-                     stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
-                    if len(file)>0:
-                        #print(file[0])
-                        for f in file:
-                            getFVFromPairFile(f,fvDPair,quakeD)
-                    else:
-                        print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
-                        file = glob('%s/%s.%s_%s.%s-pvt*'%(quakeFvDir,\
-                            stations[i]['net'],stations[i]['sta'],stations[j]['net'],stations[j]['sta']))
-                        if len(file)>0:
-                            #print(file[0])
-                            for f in file:
-                                getFVFromPairFile(f,fvDPair,quakeD)
-                '''
-                file = glob('%s/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
-                    stations[j]['sta'],stations[i]['sta']))
-                if len(file)==1:
-                    #print(file[0])
-                    for f in file:
-                        getFVFromPairFile(f,fvDPair,quakeD)
-                else: 
-                    file = glob('%s/???%s/*_*%s/Rayleigh/pvt.dat'%(quakeFvDir,\
-                     stations[i]['sta'],stations[j]['sta']))
-                    if len(file)==1:
-                        #print(file[0])
-                        for f in file:
-                            getFVFromPairFile(f,fvDPair,quakeD)
-                    else:
-                        print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
-                        file = glob('%s/*.%s_*.%s-pvt*'%(quakeFvDir,\
-                            stations[i]['sta'],stations[j]['sta']))
-                        if len(file)==1:
-                            #print(file[0])
-                            for f in file:
-                                getFVFromPairFile(f,fvDPair,quakeD)
-                '''
-                if len(fvDPair) <5:
-                    continue
-                fvAv = averageFVL([fvDPair[key] for key in fvDPair])
-                fvAv.qc()
-                if len(fvAv.f)>2:
-                    fvD[stations[i]['net']+'.'+\
-                    stations[i]['sta']+'_'+stations[j]['net']\
-                    +'.'+stations[j]['sta']] = fvAv
-        return fvD,seism.QuakeL([quakeD[key] for key in quakeD])
-
-
+    def loadQuakeNEFVAv(self,stations,quakeFvDir='models/QuakeNEFV',threshold=2\
+        ,minP=0.5):
+        with multiprocessing.Manager() as m:
+            fvD = m.dict()
+            quakeD=m.dict()
+            arg =[]
+            for i in range(len(stations)):
+                for j in range(i):
+                    sta0 = stations[i]
+                    sta1 = stations[j]
+                    dist = stations[i].dist(stations[j])
+                    if dist<200 or dist>1800:
+                        continue
+                    arg.append([sta0['net'],sta1['net'],sta0['sta'],sta1['sta'],fvD,quakeD,quakeFvDir,threshold,minP])
+            with Pool(30) as p:
+                p.map(loadOne,arg)
+                qcFvD(fvD)
+            return {key:fvD[key] for key in fvD},seism.QuakeL([quakeD[key] for key in quakeD])
+def loadOne(l):
+    net0,net1,sta0,sta1,fvD,quakeD,quakeFvDir,threshold,minP=l
+    fvDPair = {}
+    #print('models/QuakeNEFV/???%s/*_*%s/Rayleigh/pvt_sel.dat'%(stations[i]['sta'],stations[j]['sta']))
+    file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
+        net0,sta0,net1,sta1))
+    #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
+    if len(file)>0:
+        #print(file[0])
+        for f in file:
+            getFVFromPairFile(f,fvDPair,quakeD,isPrint=False)
+    else: 
+        file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt.dat'%(quakeFvDir,\
+         net0,sta0,net1,sta1))
+        if len(file)>0:
+            #print(file[0])
+            for f in file:
+                getFVFromPairFile(f,fvDPair,quakeD,isPrint=False)
+        else:
+            #print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
+            file = glob('%s/%s.%s_%s.%s-pvt*'%(quakeFvDir,\
+                net0,sta0,net1,sta1))
+            if len(file)>0:
+                #print(file[0])
+                for f in file:
+                    getFVFromPairFile(f,fvDPair,quakeD,isPrint=False)
+    sta0,sta1=[sta1,sta0]
+    net0,net1=[net1,net0]
+    file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt_sel.dat'%(quakeFvDir,\
+        net0,sta0,net1,sta1))
+    #print('models/NEFV/*%s_%s*'%(stations[i]['sta'],stations[j]['sta']))
+    if len(file)>0:
+        #print(file[0])
+        for f in file:
+            getFVFromPairFile(f,fvDPair,quakeD,isPrint=False)
+    else: 
+        file = glob('%s/%s.%s/*_%s.%s/Rayleigh/pvt.dat'%(quakeFvDir,\
+         net0,sta0,net1,sta1))
+        if len(file)>0:
+            #print(file[0])
+            for f in file:
+                getFVFromPairFile(f,fvDPair,quakeD,isPrint=False)
+        else:
+            #print('*.%s_*.%s-pvt*'%(stations[i]['sta'],stations[j]['sta']))
+            file = glob('%s/%s.%s_%s.%s-pvt*'%(quakeFvDir,\
+                net0,sta0,net1,sta1))
+            if len(file)>0:
+                #print(file[0])
+                for f in file:
+                    getFVFromPairFile(f,fvDPair,quakeD,isPrint=False)
+    sta0,sta1=[sta1,sta0]
+    net0,net1=[net1,net0]
+    if len(fvDPair) <5:
+        return
+    for key in fvDPair:
+        fvDPair[key].qc(threshold=-minP)
+    qcFvD(fvDPair)
+    fvAv = averageFVL([fvDPair[key] for key in fvDPair])
+    fvAv.qc(threshold=threshold)
+    if len(fvAv.f)>2:
+        fvD[net0+'.'+\
+        sta0+'_'+net1\
+        +'.'+sta1] = fvAv
+        if np.random.rand()<0.01:
+            print('%s std: %6.5f minT: %5.1f %4.2f maxT:  %5.1f %4.2f quake: %5d num: %4d'%(net0+'.'+\
+            sta0+'_'+net1\
+            +'.'+sta1, fvAv.std.mean(),\
+            1/fvAv.f[-1],fvAv.v[-1],1/fvAv.f[0],fvAv.v[0],len(quakeD),len(fvDPair)))
+    #fvAv.qc(threshold=2)
         
 
 class layer:
@@ -1017,10 +1043,6 @@ class fv:
             self.std = self.f*0+99
             if len(input)>2:
                 self.std = input[2]
-            if len(self.f)<2:
-                self.f=np.array([1,2])
-                self.v=np.array([1e-13,1e-13])
-                self.std=np.array([99,99])
         if mode == 'file':
             fvM = np.loadtxt(input)
             self.f = fvM[:,0]
@@ -1033,6 +1055,28 @@ class fv:
             with open(input) as f:
                 lines = f.readlines()
             for line in lines[3:]:
+                tmp = line.split()
+                T.append(float(tmp[0]))
+                v.append(float(tmp[1]))
+                std.append(float(tmp[2]))
+            f = 1/np.array(T)
+            v = np.array(v)
+            std = np.array(std)
+            f = f[std<threshold]
+            v = v[std<threshold]
+            if len(f) <=1:
+                f = np.array([-1,0])
+                v = np.array([-1,0])
+            self.f = f 
+            self.v = v
+            self.std = std[std<threshold]
+        if mode == 'NEFileNew':
+            T = []
+            v = []
+            std =[]
+            with open(input) as f:
+                lines = f.readlines()
+            for line in lines:
                 tmp = line.split()
                 T.append(float(tmp[0]))
                 v.append(float(tmp[1]))
@@ -1065,6 +1109,13 @@ class fv:
             iL = self.dist.argsort()
             self.dist= self.dist[iL]
             self.v= self.v[:,iL]
+        self.f = self.f[self.v>2]
+        self.std = self.std[self.v>2]
+        self.v = self.v[self.v>2]
+        if len(self.f)<2:
+            self.f=np.array([1,2])
+            self.v=np.array([1e-13,1e-13])
+            self.std=np.array([99,99])
         self.interp = self.genInterp()
     def genInterp(self):
         if self.mode == 'fileP':
@@ -1093,17 +1144,23 @@ class fv:
         else:
             vL =  self.interp(f)
         #print((np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1).shape)
+        '''
         df=f.reshape([-1,1])- self.f.reshape([1,-1])
-        dfT = 1/df
-        dfT[df==0]   =1e18 +dfT[df==0]*0
+        dfT = df
+        dfT[df!=0] = 1/df[df!=0]
+        dfT[df==0]   =1e18 
         dfRP         = 1/(dfT.max(axis=1))/f
         dfRP[dfRP<0] =dfRP[dfRP<0]*0+1e18
-        dfT[df==0]   =-1e18+dfT[df==0]*0
+        dfT[df==0]   =-1e18
         dfRN         = 1/((-dfT).max(axis=1))/f
         dfRN[dfRN<0] =dfRN[dfRN<0]*0+1e18 
         #dfR = (np.abs()).min(axis=1)/f
         vL[dfRP>threshold]=vL[dfRP>threshold]*0+1e-8
         vL[dfRN>threshold]=vL[dfRN>threshold]*0+1e-8
+        return vL.reshape(shape0)
+        '''
+        dfR = (np.abs(f.reshape([-1,1])- self.f.reshape([1,-1]))).min(axis=1)/f
+        vL[dfR>threshold]=vL[dfR>threshold]*0+1e-8
         return vL.reshape(shape0)
     def save(self,filename,mode='num'):
         if not os.path.exists(os.path.dirname(filename)):
@@ -1120,7 +1177,7 @@ class fv:
                     std = -1
                     if len(self.std)>0:
                         std = self.std[i]
-                    f.write('%f %f %f'%(T,v,std))
+                    f.write('%f %f %f\n'%(T,v,std))
     def update(self,self1):
         v = self1(self.f).reshape([-1])
         dv = np.abs(v-self.v)
@@ -1150,7 +1207,7 @@ class fv:
             self1.genInterp()
 
 
-def getFVFromPairFile(file,fvD={},quakeD={}):
+def getFVFromPairFile(file,fvD={},quakeD={},isPrint=True):
     with open(file) as f :
         lines = f.readlines()
     stat='next'
@@ -1275,10 +1332,13 @@ def getFVFromPairFile(file,fvD={},quakeD={}):
                 key='%s_%s'%(name,pairKey)
                 if len(f)<2:
                     continue
+                #if time > obspy.UTCDateTime(2009,1,1)+182*86400:
+                #    continue
                 fvD[key]=fv([f,v,std])
                 
                 continue
-        print(len(quakeD.keys()))
+        if isPrint:
+            print(len(quakeD.keys()))
 
 def qcFvD(fvD):
     keyL = []
@@ -1398,6 +1458,7 @@ def replaceByAv(fvD,fvDAv):
             fvD[modelName].update(fvDAv[modelName1])
         if modelName0 not in fvDAv and modelName1 not in fvDAv:
             notL.append(modelName)
+
     for name in notL:
         fvD.pop(name)
 def compareFvD(fvD, fvDRef,resDir='results/'):
@@ -1428,10 +1489,20 @@ def compareFvD(fvD, fvDRef,resDir='results/'):
             plt.close()
 class  areas:
     """docstring for  areas"""
-    def __init__(self, laL=[40,35,35,25,30,45],\
-        loL=[85,95,110,110,120,125],stations=[]):
-        self.la = np.array(laL)
-        self.lo = np.array(loL)
+    #或可用聚类
+    def __init__(self, laL=[],\
+        loL=[],stations=[]):
+        #self.la = np.array(laL)
+        #self.lo = np.array(loL)
+        n = len(stations)
+        M = int(n/100)
+        laLo = np.zeros([n,2])
+        for i in range(n):
+            laLo[i,0]=stations[i]['la']
+            laLo[i,1]=stations[i]['lo']
+        k = cluster.k_means(laLo, M)[0]
+        self.la=k[:,0]
+        self.lo=k[:,1]
         N = len(self.la)
         self.fvM = [[[]for j in range(N)] for i in range(N)]
         self.avM = [[None for j in range(N)] for i in range(N)]
@@ -1465,16 +1536,12 @@ class  areas:
                     self.avM[i][j] = averageFVL(self.fvM[i][j])
     def limit(self,fvD,threshold=2):
         keys = fvD.keys()
-        for key in keys:
+        for key in list(keys):
             i0,i1 = self.INDEX(key)
             if isinstance(self.avM[i0][i1],type(None)):
                 fvD.pop(key)
             else:
                 self.avM[i0][i1].limit(fvD[key],threshold=threshold)
-
-
-
-
 
 
 def saveFvD(fvD,fileDir = './'):

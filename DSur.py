@@ -108,27 +108,34 @@ class DS:
 					f.write('# %.3f %.3f %d 2 0\n'%(la,lo,j+1))
 					for k in range(len(indexL[i])):
 						kk = indexL[i][k]
-						if vL[k]>2:
+						if distM[k,j]>1801:
+							continue
+						if vL[k]>2 and vL[k]<6:
 							la,lo=self.config.findLaLo(stations[kk]['la'],\
 							stations[kk]['lo'])
 							f.write('%.3f %.3f %f\n'%(la,lo,vL[k]))
 	def writeMod(self,mod=[]):
 		nx,ny,nz=self.config.para['nxyz']
 		dep1=np.array(self.config.z)
+		nxyz,la,lo,z = self.config.output()
 		#dep1=np.array([0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.1,1.3,1.5,1.8,2.1,2.5])
 		nz=len(dep1)
 		#ends
 		vs1=np.zeros(nz)
-		model = loadModel()
+		model = modelTK()
+		modelPrem = loadModel()
 		if len(mod) ==0:
 			mod=np.zeros((nx,ny,nz))
 			for k in range(nz):
 				for j in range(ny):
 					for i in range(nx):
-					  mod[i,j,k] = model(dep1[k])
+						v= float(model(dep1[k],la[i],lo[j]))
+						if False:# not np.isnan(v):
+							mod[i,j,k] = v
+						else:
+							mod[i,j,k] = modelPrem(dep1[k])
 		else:
 			mod = model
-		 
 		with open(self.runPath+'/MOD','w') as fp:
 		    for i in range(nz):
 		        fp.write('%9.1f' % (dep1[i]))
@@ -138,12 +145,13 @@ class DS:
 		            for i in range(nx):
 		                fp.write('%9.3f' % (mod[i,j,k]))
 		            fp.write('\n')
+		self.mod = mod
 		for i in range(nz):
 		  print (dep1[i]),
 	def test(self,fvLL,indexL,stations):
+		self.writeMod()
 		self.writeData(fvLL,indexL,stations)
 		self.writeInput()
-		self.writeMod()
 	def loadRes(self,it=-1):
 		if it<0:
 			filename = '%s/Gc_Gs_model.inv'%(self.runPath)
@@ -262,6 +270,31 @@ def loadModelTK(file = 'models/tk.nc'):
 	lo  =  nc.variables['longitude'][:]
 	vsv =  nc.variables['vsv'][:]
 	return z,la,lo,vsv
+
+class modelTK:
+	def __init__(self):
+		z,la,lo,vsv=loadModelTK()
+		self.z  =  z#.reshape([-1,1,1])
+		self.la = la#.reshape([1,-1,1])
+		self.lo = lo#.reshape([1,1,-1])
+		self.vsv= vsv#.reshape([-1])
+		#shape = self.vsv
+		#self.vsv=self.vsv.reshape([-1])
+		for i in range(self.z.size):
+			for j in range(self.la.size):
+				for k in range(self.lo.size):
+					if np.isnan(float(self.vsv[i,j,k])):
+						self.vsv[i,j,k] =-1
+		for i in range(self.z.size):
+			for j in range(self.la.size):
+				self.vsv[i,j,self.vsv[i,j]<0] = self.vsv[i,self.vsv[i]>0].mean()
+	def __call__(self,z,la,lo):
+		i0 = np.abs(self.z  - z).argmin()
+		i1 = np.abs(self.la - la).argmin()
+		i2 = np.abs(self.lo - lo).argmin()
+		v = self.vsv[i0,i1,i2]
+		return v
+
 
 def loadModelTKV2(La,Lo,file = 'models/tk.nc'):
 	z,la,lo,vsv = loadModelTK(file)

@@ -78,6 +78,7 @@ class runConfig:
 		        	'gpuN'        : 1,\
 		        	'lalo'        :[-1,180,-1,180],#[20,34,96,108][]*******,\
 		        	'threshold'   :0.05,\
+		        	'qcThreshold':2,\
 		        	'minProb'     :0.5,\
 		        	'minP'        :0.5}
 		self.para.update(sacPara)
@@ -219,6 +220,28 @@ class run:
 		fvDGet,quakesGet = para['dConfig'].loadQuakeNEFV(self.stations,quakeFvDir=para['resDir'])
 		self.fvDGet  = fvDGet
 		self.getAv()
+	def loadResAv(self):
+		stations = []
+		for staFile in self.config.para['stationFileL']:
+			stations+=seism.StationList(staFile)
+		self.stations = seism.StationList(stations)
+		self.stations.inR(self.config.para['lalo'])
+		print(len(self.stations))
+		para    = self.config.para
+		self.fvAvGet,self.quakesGet = para['dConfig'].loadQuakeNEFVAv(self.stations,quakeFvDir=para['resDir'],\
+			threshold=self.config.para['threshold'],minP=self.config.para['minP'])
+		for fv in self.fvAvGet:
+			self.fvAvGet[fv].qc(threshold=para['threshold'])
+		d.qcFvD(self.fvAvGet)
+	def loadAv(self,fvDir ='models/all/',mode='NEFileNew'):
+		stations = []
+		para    = self.config.para
+		for staFile in self.config.para['stationFileL']:
+			stations+=seism.StationList(staFile)
+		stations = seism.StationList(stations)
+		stations.inR(para['lalo'])
+		self.stations = seism.StationList(stations)
+		self.fvAvGet = para['dConfig'].loadNEFV(stations,fvDir=fvDir,mode=mode)
 	def getAv(self):
 		for fv in self.fvDGet:
 			self.fvDGet[fv].qc(threshold=-self.config.para['minP'])
@@ -234,6 +257,14 @@ class run:
 		for key in self.fvAvGet:
 			self.FVAV.limit(self.fvAvGet[key],threshold=threshold)
 		d.qcFvD(self.fvAvGet)
+	def getAreas(self):
+		self.areas=d.areas(stations=self.stations)
+	def areasLimit(self,threshold=2):
+		#self.areas = self.getAreas()
+		self.areas.Insert(self.fvAvGet)
+		self.areas.getAv()
+		self.areas.limit(self.fvAvGet,threshold=threshold)
+		d.qcFvD(self.fvAvGet)
 	def preDS(self):
 		para    = self.config.para
 		tSur = para['tSur']
@@ -242,7 +273,7 @@ class run:
 		DSConfig = DSur.config(para=surPara,z=z)
 		DS = DSur.DS(config=DSConfig,runPath=para['runDir'])
 		self.DS = DS
-		indexL,vL = d.fvD2fvL(self.fvAvGet,self.stations,1/tSur)
+		indexL,vL = d.fvD2fvL(self.fvAvGet,self.stations[-1::-1],1/tSur)
 		self.indexL = indexL
 		self.vL   = vL
 		DS.test(vL,indexL,self.stations)
@@ -260,7 +291,7 @@ paraOrdos={ 'quakeFileL'  : ['phaseLPickCEA'],\
     'isLoadFvL'   : [False],#False********\
     'byRecordL'   : [False],\
     'trainDir'    : 'predict/1010_0.95_0.05_3.2_randMove/',\
-    'resDir'      : 'results/1015_Ordos_V0/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+    'resDir'      : '/fastDir/results/1015_all_V?/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
     'perN'        : 20,\
     'eventDir'    : '/HOME/jiangyr/eventSac/',\
     'z'           : [5,10,20,30,45,60,80,100,125,150,175,200,250,300,350],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
@@ -287,7 +318,7 @@ paraYNSC={ 'quakeFileL'  : ['phaseLPickCEA'],\
 		            'byRecordL'   : [False],
 		            'maxCount'    : 4096*3,\
 		            'trainDir'    : 'predict/1010_0.95_0.05_3.2_randMove/',
-		            'resDir'      : 'results/1013_YNSC_V3/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+		            'resDir'      : '/fastDir/results/1015_all_V?/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
 		            'refModel'    : 'models/prem',\
 		            'perN'        : 20,\
 		            'eventDir'    : '/HOME/jiangyr/eventSac/',\
@@ -311,19 +342,20 @@ paraAll={ 'quakeFileL'  : ['phaseLPickCEA'],\
     'isLoadFvL'   : [False],#False********\
     'byRecordL'   : [False],\
     'trainDir'    : 'predict/1010_0.95_0.05_3.2_randMove/',\
-    'resDir'      : 'results/1015_all_V1/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+    'resDir'      : '/fastDir/results/1015_all_V?/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
     'perN'        : 1,\
     'eventDir'    : '/HOME/jiangyr/eventSac/',\
-    'z'           : [5,10,20,30,45,60,80,100,125,150,175,200,250,300,350],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
-    'surPara'     : { 'nxyz':[80,140,0], 'lalo':[56,70],#[40,60,0][55,108]\
-                    'dlalo':[0.5,0.5], 'maxN':800,#[0.5,0.5]\
-					'kmaxRc':0,'rcPerid':[],'threshold':0.01\
-					,'maxIT':200,'nBatch':100,'smoothDV':20,'smoothG':40},\
+    'z'           : [0,5,10,15,20,25,30,35,45,55,65,80,100,130,160,200,270,350],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
+    'tSur'        : (16**np.arange(0,1.000001,1/24.5))*10,\
+    'surPara'     : { 'nxyz':[56,88,0], 'lalo':[56,70],#[40,60,0][55,108]\
+                    'dlalo':[0.8,0.8], 'maxN':800,#[0.5,0.5]\
+					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 3,\
+					'maxIT':100,'nBatch':100,'smoothDV':80,'smoothG':160},\
 	'runDir'      : 'DS/1015_CEA160_Ordos/',#_man/',\
 	'gpuIndex'    : 1,\
 	'gpuN'        : 2,\
 	'lalo'        :[-1,180,-1,180],#[20,34,96,108][]*******,\
-	'threshold'   :0.05,\
+	'threshold'   :0.03,\
 	'minProb'     :0.5,\
 	'minP'        :0.5}
 
