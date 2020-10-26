@@ -4,10 +4,12 @@ from scipy import interpolate,stats
 from matplotlib import pyplot as plt
 from distaz import DistAz
 from netCDF4 import Dataset
+import mapTool as mt
 import pycpt
 cmap = pycpt.load.gmtColormap('cpt/temperatureInv')
 ##程序中又控制的大bug
 ##必须按顺序(period source)
+faultL = mt.readFault('Chinafault_fromcjw.dat')
 class config:
 	def __init__(self,para={},name='ds',z=[10,20,40,80,120,160,200,320]):
 		self.name = name
@@ -229,10 +231,12 @@ class Model:
 		#prem =loadModel()
 		#prem =loadModelTKV2(la,lo)
 		#premV=prem(np.array(z))
-		
+
 
 		for i in range(self.nxyz[-1]):
 			plt.close()
+			R = [la.min(),la.max(),lo.min(),lo.max()]
+			m = mt.genBaseMap(R)
 			v = self.v[:,:,i]
 			#mean = (premV[i-1]+premV[i])/2
 			#
@@ -245,16 +249,54 @@ class Model:
 			#mean = v.mean()
 			Per  = (v-mean)/mean
 			la,lo,per=denseLaLo(self.la,self.lo,Per[:,:])
-			plt.pcolor(lo,la,per,cmap=cmap)
+			x,y= m(lo,la)
+			#print(la[0,0],lo[0,0])
+			dLa,dLo=getDlaDlo(R)
+			for fault in faultL:
+				if fault.inR(R):
+					fault.plot(m)
+			m.pcolor(x,y,per,cmap=cmap,shading='auto')
+			m.drawcoastlines()
+			#plt.pcolor(lo,la,per,cmap=cmap)
 			plt.clim(vmin=-np.abs(per[midLaN:-midLaN,midLoN:-midLoN])\
 				.max(),vmax=np.abs(per[midLaN:-midLaN,midLoN:-midLoN]\
 					).max())
 			#plt.clim(vmin=-8/100,vmax=+8/100)			#plt.pcolor(self.lo,self.la,-self.v[:,:,i],cmap='bwr')
 			plt.colorbar()
-			plt.title('%f_%f.jpg'%(self.z[i],mean))
+			plt.title('depth: %.2f km mean: %.3f'%(self.z[i],mean))
+			dLa,dLo=getDlaDlo(R)
+			plotLaLoLine(m,dLa,dLo)
 			plt.savefig('%s/%f.jpg'%(resDir,self.z[i]),dpi=200)
-			plt.ylim([35,55])
+			#plt.ylim([35,55])
 			plt.close()
+
+def plotLaLoLine(m,dLa=10,dLo=10):
+	parallels = np.arange(0.,90,dLa)
+	m.drawparallels(parallels,labels=[False,True,True,False])
+	meridians = np.arange(10.,360.,dLo)
+	plt.gca().yaxis.set_ticks_position('right')
+	m.drawmeridians(meridians,labels=[True,False,False,True])
+def getDlaDlo(R):
+	DLA = R[1] -R[0]
+	DLO = R[3] -R[2]
+	if DLA<10:
+		dLa = 2
+	elif DLA<20:
+		dLa = 4
+	elif DLA<40:
+		dLa = 5
+	else:
+		dLa = 10
+
+	if DLO<10:
+		dLo = 2
+	elif DLO<20:
+		dLo = 4
+	elif DLO<40:
+		dLo = 5
+	else:
+		dLo = 10
+	return dLa,dLo
 
 def loadModel(file='models/prem'):
 	data = np.loadtxt(file)

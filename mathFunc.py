@@ -321,7 +321,7 @@ def disDegreeBak(dis,maxD = 100, maxTheta=20):
     theta = theta0/np.sin(delta/180*np.pi)
     return min(theta,maxTheta)
 
-def QC(data):
+def QC(data,threshold=2.5):
     if len(data)<6:
         return data.mean(),999,len(data)
     #if len(data)<10:
@@ -329,8 +329,8 @@ def QC(data):
     mData = np.median(data)
     d = np.abs(data - mData)
     lqr = stats.iqr(data)
-    threshold = lqr*2.5
+    threshold = lqr*threshold
     if (d>threshold).sum()==0:
         return data.mean(),data.std(),len(data)
     else:
-        return QC(data[d<threshold])
+        return QC(data[d<threshold],threshold)

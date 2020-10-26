@@ -1067,6 +1067,7 @@ class fv:
             if len(f) <=1:
                 f = np.array([-1,0])
                 v = np.array([-1,0])
+                std = np.array([-1,0])
             self.f = f 
             self.v = v
             self.std = std[std<threshold]
@@ -1109,6 +1110,10 @@ class fv:
             iL = self.dist.argsort()
             self.dist= self.dist[iL]
             self.v= self.v[:,iL]
+        if len(self.f)<2:
+            self.f=np.array([1,2])
+            self.v=np.array([1e-13,1e-13])
+            self.std=np.array([99,99])
         self.f = self.f[self.v>2]
         self.std = self.std[self.v>2]
         self.v = self.v[self.v>2]
@@ -1348,7 +1353,7 @@ def qcFvD(fvD):
     for key in keyL:
         fvD.pop(key)
 
-def averageFVL(fvL,minSta=5):
+def averageFVL(fvL,minSta=5,threshold=2.5):
     fL =[]
     for FV in fvL:
         f = FV.f
@@ -1366,7 +1371,7 @@ def averageFVL(fvL,minSta=5):
     std = f*0
     v = f*0
     for i in range(len(f)):
-        MEAN, STD, vN = QC(vMNew[i][vMNew[i]>1])
+        MEAN, STD, vN = QC(vMNew[i][vMNew[i]>1],threshold=threshold)
         v[i] = MEAN
         std[i] = STD
     return fv([f,v,std])
@@ -1429,7 +1434,7 @@ def plotFVL(fvL,fvRef=None,filename='test.jpg',thresholdL=[2]):
 
 def figSet():
     plt.xlim([3,5])
-    plt.ylim([1/120,1/10])
+    plt.ylim([1/160,1/10])
     plt.gca().semilogy()
     plt.xlabel('v/(km/s)')
     plt.ylabel('f/Hz')
@@ -1498,14 +1503,18 @@ class  areas:
         #self.la = np.array(laL)
         #self.lo = np.array(loL)
         n = len(stations)
-        M = int(n/100)
-        laLo = np.zeros([n,2])
-        for i in range(n):
-            laLo[i,0]=stations[i]['la']
-            laLo[i,1]=stations[i]['lo']
-        k = cluster.k_means(laLo, M)[0]
-        self.la=k[:,0]
-        self.lo=k[:,1]
+        M = 5
+        if len(laL)==0:
+            laLo = np.zeros([n,2])
+            for i in range(n):
+                laLo[i,0]=stations[i]['la']
+                laLo[i,1]=stations[i]['lo']
+            k = cluster.k_means(laLo, M)[0]
+            self.la=k[:,0]
+            self.lo=k[:,1]
+        else:
+            self.la = np.array(laL)
+            self.lo = np.array(loL)
         N = len(self.la)
         self.fvM = [[[]for j in range(N)] for i in range(N)]
         self.avM = [[None for j in range(N)] for i in range(N)]
@@ -1532,11 +1541,11 @@ class  areas:
     def Insert(self,fvD):
         for key in fvD:
             self.insert(key,fvD[key])
-    def getAv(self):
+    def getAv(self,threshold=2.5):
         for i in range(self.N):
             for j in range(self.N):
                 if len(self.fvM[i][j])>30:
-                    self.avM[i][j] = averageFVL(self.fvM[i][j])
+                    self.avM[i][j] = averageFVL(self.fvM[i][j],threshold=threshold)
     def limit(self,fvD,threshold=2):
         keys = fvD.keys()
         for key in list(keys):
@@ -1545,6 +1554,21 @@ class  areas:
                 fvD.pop(key)
             else:
                 self.avM[i0][i1].limit(fvD[key],threshold=threshold)
+    def std20(self):
+        for i0 in range(self.N):
+            for i1 in range(self.N):
+                if not isinstance(self.avM[i0][i1],type(None)):
+                    self.avM[i0][i1].std[self.avM[i0][i1].std>0.1]=0
+                    self.avM[i0][i1].genInterp()
+    def  plot(self,resDir='test/'):
+        N =len(self.la)
+        if not os.path.exists(resDir):
+            os.makedirs(resDir)
+        for i in range(N):
+            for j in range(N):
+                plotFVL(self.fvM[i][j],self.avM[i][j],'%s/fvM+%.2f_%.2f+%.2f_%.2f.jpg'%\
+                    (resDir,self.la[i],self.lo[i],self.la[j],self.lo[j]),thresholdL=[1,2,3,4])
+
 
 
 def saveFvD(fvD,fileDir = './'):

@@ -256,6 +256,16 @@ class StationList(list):
                 indexL.append(i)
         for i in  indexL:
             self.pop(i)
+    def notInR(self,lalo):
+        indexL = []
+        for i in range(len(self)-1,-1,-1):
+            sta = self[i]
+            if sta['la']<lalo[0] or sta['la']>lalo[1] or sta['lo']<lalo[2] or sta['lo']>lalo[3]:
+                pass
+            else:
+                indexL.append(i)
+        for i in  indexL:
+            self.pop(i)
     def __add__(self,self1):
         selfNew = StationList([])
         for station in self:

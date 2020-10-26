@@ -68,19 +68,23 @@ class runConfig:
 		            'eventDir'    : '/HOME/jiangyr/eventSac/',\
 		            'T'           : (16**np.arange(0,1.000001,1/49))*10,\
 		            'tSur'        : (16**np.arange(0,1.000001,1/24.5))*10,\
-		            'z'           : [5,10,20,30,45,60,80,100,125,150,175,200,250,300,350],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
-		            'surPara'     : { 'nxyz':[40,35,0], 'lalo':[36,96],#[40,60,0][55,108]\
+		            'z'           : [0,5,10,15,20,25,30,35,45,55,65,80,100,130,160,200,240],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
+		            'surPara'     : { 'nxyz':[50,75,0], 'lalo':[55,108],#[40,60,0][55,108]\
 		                            'dlalo':[0.4,0.4], 'maxN':100,#[0.5,0.5]\
 		        					'kmaxRc':0,'rcPerid':[],'threshold':0.01\
-		        					,'maxIT':32,'nBatch':16,'smoothDV':20,'smoothG':40},\
-		        	'runDir'      : 'DS/1013_CEA160_YNSC/',#_man/',\
+		        					,'maxIT':8,'nBatch':16,'smoothDV':10,'smoothG':20},\
+		        	'runDir'      : 'DS/1026_CEA160_NE/',#_man/',\
 		        	'gpuIndex'    : 0,\
 		        	'gpuN'        : 1,\
 		        	'lalo'        :[-1,180,-1,180],#[20,34,96,108][]*******,\
+		        	'nlalo'        :[-1,-1,-1,-1],\
 		        	'threshold'   :0.05,\
 		        	'qcThreshold':2,\
 		        	'minProb'     :0.5,\
-		        	'minP'        :0.5}
+		        	'minP'        :0.5,\
+		        	'laL'         : [],\
+		        	'loL'         : [],\
+		        	'areasLimit'  :  3}
 		self.para.update(sacPara)
 		self.para.update(para)
 		os.environ["CUDA_VISIBLE_DEVICES"]=str(self.para['gpuIndex'])
@@ -219,6 +223,7 @@ class run:
 		para    = self.config.para
 		fvDGet,quakesGet = para['dConfig'].loadQuakeNEFV(self.stations,quakeFvDir=para['resDir'])
 		self.fvDGet  = fvDGet
+		d.qcFvD(self.fvDGet)
 		self.getAv()
 	def loadResAv(self):
 		stations = []
@@ -226,6 +231,7 @@ class run:
 			stations+=seism.StationList(staFile)
 		self.stations = seism.StationList(stations)
 		self.stations.inR(self.config.para['lalo'])
+		self.stations.notInR(self.config.para['nlalo'])
 		print(len(self.stations))
 		para    = self.config.para
 		self.fvAvGet,self.quakesGet = para['dConfig'].loadQuakeNEFVAv(self.stations,quakeFvDir=para['resDir'],\
@@ -240,6 +246,7 @@ class run:
 			stations+=seism.StationList(staFile)
 		stations = seism.StationList(stations)
 		stations.inR(para['lalo'])
+		stations.notInR(self.config.para['nlalo'])
 		self.stations = seism.StationList(stations)
 		self.fvAvGet = para['dConfig'].loadNEFV(stations,fvDir=fvDir,mode=mode)
 	def getAv(self):
@@ -258,12 +265,13 @@ class run:
 			self.FVAV.limit(self.fvAvGet[key],threshold=threshold)
 		d.qcFvD(self.fvAvGet)
 	def getAreas(self):
-		self.areas=d.areas(stations=self.stations)
-	def areasLimit(self,threshold=2):
+		self.areas=d.areas(laL=self.config.para['laL'],\
+			loL=self.config.para['loL'],stations=self.stations)
+	def areasLimit(self):
 		#self.areas = self.getAreas()
 		self.areas.Insert(self.fvAvGet)
 		self.areas.getAv()
-		self.areas.limit(self.fvAvGet,threshold=threshold)
+		self.areas.limit(self.fvAvGet,threshold=self.config.para['areasLimit'])
 		d.qcFvD(self.fvAvGet)
 	def preDS(self):
 		para    = self.config.para
@@ -277,6 +285,18 @@ class run:
 		self.indexL = indexL
 		self.vL   = vL
 		DS.test(vL,indexL,self.stations[-1::-1])
+	def preDSOld(self):
+		para    = self.config.para
+		tSur = para['tSur']
+		z= para['z']
+		surPara= para['surPara']
+		DSConfig = DSur.config(para=surPara,z=z)
+		DS = DSur.DS(config=DSConfig,runPath=para['runDir'])
+		self.DS = DS
+		indexL,vL = d.fvD2fvL(self.fvAvGet,self.stations,1/tSur)
+		self.indexL = indexL
+		self.vL   = vL
+		DS.test(vL,indexL,self.stations)
 	def loadAndPlot(self):
 		self.DS.loadRes()
 		self.DS.plotByZ()
@@ -299,13 +319,14 @@ paraOrdos={ 'quakeFileL'  : ['phaseLPickCEA'],\
                     'dlalo':[0.3,0.3], 'maxN':100,#[0.5,0.5]\
 					'kmaxRc':0,'rcPerid':[],'threshold':0.01\
 					,'maxIT':8,'nBatch':4,'smoothDV':20,'smoothG':40},\
-	'runDir'      : 'DS/1015_CEA160_Ordos_0.03/',#_man/',\
+	'runDir'      : 'DS/1026_CEA160_Ordos_0.03/',#_man/',\
 	'gpuIndex'    : 0,\
 	'gpuN'        : 1,\
 	'lalo'        :[32,42,103,115],#[20,34,96,108][-1,180,-1,180]*******,\
-	'threshold'   :0.05,\
+	'nlalo'        :[-1,-1,-1,-1],\
+	'threshold'   :0.03,\
 	'minProb'     :0.5,\
-	'minP'        :0.5}
+	'minP'        :0.7}
 paraYNSC={ 'quakeFileL'  : ['phaseLPickCEA'],\
 		            'stationFileL': ['stations/CEA.sta_know_few'],#**********'stations/CEA.sta_know_few'\
 		            'oRemoveL'    : [False],\
@@ -355,7 +376,111 @@ paraAll={ 'quakeFileL'  : ['phaseLPickCEA'],\
 	'gpuIndex'    : 1,\
 	'gpuN'        : 2,\
 	'lalo'        :[-1,180,-1,180],#[20,34,96,108][]*******,\
-	'threshold'   :0.05,\
+	'threshold'   :0.03,\
 	'minProb'     :0.5,\
-	'minP'        :0.5}
+	'minP'        :0.7,\
+	'laL'         : [],\
+	'loL'         : [],\
+	'areasLimit'  :  3}
+paraAll2={ 'quakeFileL'  : ['phaseLPickCEA'],\
+    'stationFileL': ['stations/CEA.sta_know_few'],#**********'stations/CEA.sta_know_few'\
+    'isLoadFvL'   : [False],#False********\
+    'byRecordL'   : [False],\
+    'trainDir'    : 'predict/1010_0.95_0.05_3.2_randMove/',\
+    'resDir'      : '/fastDir/results/1015_all_V?/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+    'perN'        : 1,\
+    'eventDir'    : '/HOME/jiangyr/eventSac/',\
+    'z'           : [0,5,10,15,20,25,30,35,45,55,65,80,100,130,160,200,270,350],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
+    'tSur'        : (16**np.arange(0,1.000001,1/24.5))*10,\
+    'surPara'     : { 'nxyz':[56,88,0], 'lalo':[56,70],#[40,60,0][55,108]\
+                    'dlalo':[0.8,0.8], 'maxN':800,#[0.5,0.5]\
+					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 3,\
+					'maxIT':100,'nBatch':100,'smoothDV':80,'smoothG':160},\
+	'runDir'      : 'DS/1026_CEA160_all/',#_man/',\
+	'gpuIndex'    : 1,\
+	'gpuN'        : 2,\
+	'lalo'        :[-1,180,-1,180],#[20,34,96,108][]*******,\
+	'threshold'   :0.03,\
+	'minProb'     :0.5,\
+	'minP'        :0.7,\
+	'laL'         : [35,30, 28,  35, 45],\
+	'loL'         : [95,108,118,115,125],\
+	'areasLimit'  :  3}
+
+paraWest={ 'quakeFileL'  : ['phaseLPickCEA'],\
+    'stationFileL': ['stations/CEA.sta_know_few'],#**********'stations/CEA.sta_know_few'\
+    'isLoadFvL'   : [False],#False********\
+    'byRecordL'   : [False],\
+    'trainDir'    : 'predict/1010_0.95_0.05_3.2_randMove/',\
+    'resDir'      : '/fastDir/results/1015_all_V?/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+    'perN'        : 1,\
+    'eventDir'    : '/HOME/jiangyr/eventSac/',\
+    'z'           : [0,5,10,15,20,25,30,35,45,55,65,80,100,130,160,200,270,350],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
+    'tSur'        : (16**np.arange(0,1.000001,1/24.5))*10,\
+    'surPara'     : { 'nxyz':[56,88,0], 'lalo':[56,70],#[40,60,0][55,108]\
+                    'dlalo':[0.8,0.8], 'maxN':800,#[0.5,0.5]\
+					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 3,\
+					'maxIT':100,'nBatch':100,'smoothDV':80,'smoothG':160},\
+	'runDir'      : 'DS/1026_CEA160_west/',#_man/',\
+	'gpuIndex'    : 1,\
+	'gpuN'        : 2,\
+	'lalo'        :[-1,180,-1,100],#[20,34,96,108][]*******,\
+	'threshold'   :0.03,\
+	'minProb'     :0.5,\
+	'minP'        :0.7,\
+	'laL'         : [35,30, 28,  35, 45],\
+	'loL'         : [95,108,118,115,125],\
+	'areasLimit'  :  3}
+
+paraEest={ 'quakeFileL'  : ['phaseLPickCEA'],\
+    'stationFileL': ['stations/CEA.sta_know_few'],#**********'stations/CEA.sta_know_few'\
+    'isLoadFvL'   : [False],#False********\
+    'byRecordL'   : [False],\
+    'trainDir'    : 'predict/1010_0.95_0.05_3.2_randMove/',\
+    'resDir'      : '/fastDir/results/1015_all_V?/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+    'perN'        : 1,\
+    'eventDir'    : '/HOME/jiangyr/eventSac/',\
+    'z'           : [0,5,10,15,20,25,30,35,45,55,65,80,100,130,160,200,270,350],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
+    'tSur'        : (16**np.arange(0,1.000001,1/24.5))*10,\
+    'surPara'     : { 'nxyz':[112,96,0], 'lalo':[56,102],#[40,60,0][55,108]\
+                    'dlalo':[0.4,0.4], 'maxN':800,#[0.5,0.5]\
+					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 3,\
+					'maxIT':100,'nBatch':100,'smoothDV':80,'smoothG':160},\
+	'runDir'      : 'DS/1026_CEA160_east/',#_man/',\
+	'gpuIndex'    : 1,\
+	'gpuN'        : 2,\
+	'lalo'        :[-1,180,103,180],#[20,34,96,108][]*******,\
+	'nlalo'        :[-1,35,-1,106],\
+	'threshold'   :0.03,\
+	'minProb'     :0.5,\
+	'minP'        :0.7,\
+	'laL'         : [28,  35, 45],\
+	'loL'         : [110,115,125],\
+	'areasLimit'  :  3}
+
+paraNECE={ 'quakeFileL'  : ['phaseLPickCEA'],\
+    'stationFileL': ['stations/NEsta_all.locSensorDas'],#**********'stations/CEA.sta_know_few'\
+    'isLoadFvL'   : [False],#False********\
+    'byRecordL'   : [False],\
+    'trainDir'    : 'predict/1010_0.95_0.05_3.2_randMove/',\
+    'resDir'      : 'models/NEFVSEL/',#'models/ayu/Pairs_pvt/',#'results/1001/',#'results/1005_allV1/',\
+    'perN'        : 1,\
+    'eventDir'    : '/HOME/jiangyr/eventSac/',\
+    'z'           : [0,5,10,15,20,25,30,35,45,55,65,80,100,130,160,200,240],#[5,10,20,30,45,60,80,100,125,150,175,200,250,300,350](350**(np.arange(0,1.01,1/18)+1/18)).tolist(),\
+    'tSur'        : (16**np.arange(0,1.000001,1/24.5))*10,\
+    'surPara'     : { 'nxyz':[21,52,0], 'lalo':[48,115],#[40,60,0][55,108]\
+                    'dlalo':[0.4,0.4], 'maxN':129,#[0.5,0.5]\
+					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 0.4,\
+					'maxIT':8,'nBatch':8,'smoothDV':10,'smoothG':20},\
+	'runDir'      : 'DS/1026_CEA160_NECE_SEL/',#_man/',\
+	'gpuIndex'    : 1,\
+	'gpuN'        : 2,\
+	'lalo'        :[-1,180,103,180],#[20,34,96,108][]*******,\
+	'nlalo'        :[-1,-1,-1,-1],\
+	'threshold'   :0.03,\
+	'minProb'     :0.5,\
+	'minP'        :0.7,\
+	'laL'         : [28,  35, 45],\
+	'loL'         : [110,115,125],\
+	'areasLimit'  :  3}
 
