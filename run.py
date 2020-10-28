@@ -273,7 +273,7 @@ class run:
 		self.areas.getAv()
 		self.areas.limit(self.fvAvGet,threshold=self.config.para['areasLimit'])
 		d.qcFvD(self.fvAvGet)
-	def preDS(self):
+	def preDS(self,do=True):
 		para    = self.config.para
 		tSur = para['tSur']
 		z= para['z']
@@ -281,10 +281,24 @@ class run:
 		DSConfig = DSur.config(para=surPara,z=z)
 		DS = DSur.DS(config=DSConfig,runPath=para['runDir'])
 		self.DS = DS
-		indexL,vL = d.fvD2fvL(self.fvAvGet,self.stations[-1::-1],1/tSur)
-		self.indexL = indexL
-		self.vL   = vL
-		DS.test(vL,indexL,self.stations[-1::-1])
+		if do:
+			indexL,vL = d.fvD2fvL(self.fvAvGet,self.stations[-1::-1],1/tSur)
+			self.indexL = indexL
+			self.vL   = vL
+			DS.test(vL,indexL,self.stations[-1::-1])
+	def preDSSyn(self,do=True):
+		para    = self.config.para
+		tSur = para['tSur']
+		z= para['z']
+		surPara= para['surPara']
+		DSConfig = DSur.config(para=surPara,z=z)
+		DS = DSur.DS(config=DSConfig,runPath=para['runDir'])
+		self.DS = DS
+		if do:
+			indexL,vL = d.fvD2fvL(self.fvAvGet,self.stations[-1::-1],1/tSur)
+			self.indexL = indexL
+			self.vL   = vL
+			DS.testSyn(vL,indexL,self.stations[-1::-1])
 	def preDSOld(self):
 		para    = self.config.para
 		tSur = para['tSur']
@@ -444,7 +458,7 @@ paraEest={ 'quakeFileL'  : ['phaseLPickCEA'],\
     'tSur'        : (16**np.arange(0,1.000001,1/24.5))*10,\
     'surPara'     : { 'nxyz':[112,96,0], 'lalo':[56,102],#[40,60,0][55,108]\
                     'dlalo':[0.4,0.4], 'maxN':800,#[0.5,0.5]\
-					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 3,\
+					'kmaxRc':0,'rcPerid':[],'threshold':0.01,'sparsity': 0.3,\
 					'maxIT':100,'nBatch':100,'smoothDV':80,'smoothG':160},\
 	'runDir'      : 'DS/1026_CEA160_east/',#_man/',\
 	'gpuIndex'    : 1,\
