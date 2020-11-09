@@ -235,7 +235,7 @@ def validL(v,prob, minProb = 0.7,minV=2,maxV=6):
     tmp  = []
     for i in range(len(v)):
         if v[i] > minV and v[i]<maxV and\
-         prob[i]>minProb:
+         prob[i]>minProb and (i==0 or np.abs(prob[i]-prob[i-1])/prob[i]<0.2):
             tmp.append(i)
             if i == len(v)-1:
                 l.append(tmp)
@@ -321,7 +321,7 @@ def disDegreeBak(dis,maxD = 100, maxTheta=20):
     theta = theta0/np.sin(delta/180*np.pi)
     return min(theta,maxTheta)
 
-def QC(data,threshold=2.5):
+def QC_bak(data,threshold=2.5):
     if len(data)<6:
         return data.mean(),999,len(data)
     #if len(data)<10:
@@ -329,8 +329,26 @@ def QC(data,threshold=2.5):
     mData = np.median(data)
     d = np.abs(data - mData)
     lqr = stats.iqr(data)
-    threshold = lqr*threshold
-    if (d>threshold).sum()==0:
+    Threshold = lqr*threshold
+    if (d>Threshold).sum()==0:
         return data.mean(),data.std(),len(data)
     else:
-        return QC(data[d<threshold],threshold)
+        return QC(data[d<Threshold],threshold)
+
+def QC(data,threshold=2.5,it=20):
+    if it==0:
+        print('***********************************reach depest*******************')
+    if len(data)<6 or it==0:
+        return data.mean(),999,len(data)
+    #if len(data)<10:
+    #    return data.mean(),data.std(),len(data)
+    mData = np.median(data)
+    d = np.abs(data - mData)
+    lqr = stats.iqr(data)
+    Threshold = lqr*threshold
+    mData = np.mean(data[d<Threshold])
+    d = np.abs(data - mData)
+    if (d>Threshold).sum() ==0 :
+        return data[d<Threshold].mean(),data[d<Threshold].std(),len(data)
+    else:
+        return QC(data[d<Threshold],threshold,it-1)

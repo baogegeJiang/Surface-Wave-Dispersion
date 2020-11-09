@@ -19,7 +19,7 @@ from mathFunc import fitexp
 from numba import jit
 from sklearn import cluster
 import multiprocessing
-from multiprocessing import Pool
+c
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -1422,7 +1422,11 @@ def plotFVL(fvL,fvRef=None,filename='test.jpg',thresholdL=[2]):
         if isinstance(fvL,dict):
             fv = fvL[fv]
         if len(fv.f)>2:
-            plt.plot(fv.v,fv.f,'k',linewidth=0.1,alpha=0.2)
+            parts = validL(fv.v,fv.f,1)
+            for part in parts:
+                if len(part)>0:
+                    part = np.array(part)
+                    plt.plot(fv.v[part],fv.f[part],'k',linewidth=0.1,alpha=0.2)
     if fvRef !=None:
         for threshold in thresholdL:
             plt.plot(fvRef.v-threshold*fvRef.std,fvRef.f,'-.r',linewidth=0.5)
@@ -1495,7 +1499,7 @@ def compareFvD(fvD, fvDRef,resDir='results/'):
             
             plt.savefig(resDir+'compare_'+key+'.jpg',dpi=300)
             plt.close()
-class  areas:
+class areas:
     """docstring for  areas"""
     #或可用聚类
     def __init__(self, laL=[],\

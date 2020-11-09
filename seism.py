@@ -238,6 +238,8 @@ class Station(Dist):
                 self['compBase']=self['sensorName'][-3:-1]
                 self['comp'] = [self['compBase']+s for s in 'ENZ' ]
         return self['sensorName'],self['dasName'],self['sensorNum']
+    def loc(self):
+        return [self['la'],self['lo'],self['dep']]
 
 class StationList(list):
     def __init__(self,*argv,**kwargs):

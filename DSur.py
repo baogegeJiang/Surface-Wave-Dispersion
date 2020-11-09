@@ -28,10 +28,9 @@ class config:
 		'sablayers':3,'minmaxV':[1,7],'maxIT':10, 'sparsity':0.4,\
 		'kmaxRc':10,'rcPerid':np.arange(1,11).tolist(),'kmaxRg':0,'rgPeriod':[],\
 		'kmaxLc':0,'lcPeriod':[],'kmaxLg':0,'lgPeriod':[],'isSyn':0,'noiselevel':0.02,'threshold':0.05,\
-		'vnn':[0,100,50],'iso':'F','c':'c','smoothDV':10,'smoothG':20,'Damp':0,'perN':[3,3,2],'perA':0.05,\
-		'perAGs':0,'perAGc':5,\
+		'vnn':[0,100,50],'iso':'F','c':'c','smoothDV':10,'smoothG':20,'Damp':0,'perN':[6,6,4],'perA':0.05,\
 		'modelPara': {'config':self,'mode':'prem','runPath':'','file':'models/prem','la':'','lo':'','z':'','self1':'',\
-		},'rayT':'F','noise':1.8,\
+		},'rayT':'F','noise':0,\
 		'GSPara': {'config':self,'mode':'GS','runPath':'','file':'','la':'','lo':'','z':'','self1':'',\
 		},\
 		'GCPara': {'config':self,'mode':'GC','runPath':'','file':'','la':'','lo':'','z':'','self1':'',\
@@ -42,13 +41,18 @@ class config:
 		la = self.para['lalo'][0]-np.arange(nxyz[0])*self.para['dlalo'][0]
 		lo = self.para['lalo'][1]+np.arange(nxyz[1])*self.para['dlalo'][1]
 		return nxyz,la,lo,self.z
+	def outputP(self):
+		nxyz = self.para['nxyz'][:2]+[len(self.para['rcPerid'])]
+		la = self.para['lalo'][0]-np.arange(nxyz[0])*self.para['dlalo'][0]
+		lo = self.para['lalo'][1]+np.arange(nxyz[1])*self.para['dlalo'][1]
+		return nxyz,la,lo,np.array(self.para['rcPerid'])
 	def findLaLo(self,la,lo):
 		laNew = -round((self.para['lalo'][0]-la)/self.para['dlalo'][0])*self.para['dlalo'][0]+self.para['lalo'][0]+0.001
 		loNew =  round((lo-self.para['lalo'][1])/self.para['dlalo'][1])*self.para['dlalo'][1]+self.para['lalo'][1]+0.001
 		return la,lo
 class DS:
 	"""docstring for ClassName"""
-	def __init__(self,runPath='DS/',config=config()):
+	def __init__(self,runPath='DS/',config=config(),mode='real'):
 		self.runPath = runPath
 		if not os.path.exists(runPath):
 			os.mkdir(runPath)
@@ -56,6 +60,7 @@ class DS:
 		self.config.para['modelPara']['runPath']= runPath
 		self.config.para['GSPara']['runPath']= runPath
 		self.config.para['GCPara']['runPath']= runPath
+		self.mode = mode
 
 	def writeInput(self,perI=-1):
 		'''
@@ -132,7 +137,7 @@ class DS:
 			    	if key =='rcPerid':
 			    		value = str(self.config.para[key][perI])
 		    	f.write(value+' c: '+key+'\n')
-	def writeData(self,fvLL,indexL,stations,waveType=0,perI=-1):
+	def writeData(self,fvLL,indexL,stations,waveType=0,perI=-1,perJ=0,M=1):
 		staN = len(stations)
 		distM = np.zeros([staN, staN])
 		for i in range(staN):
@@ -148,6 +153,8 @@ class DS:
 					if j != perI:
 						continue
 				for i in range(staN):
+					if i%M!=perJ:
+						continue
 					if len(indexL[i])==0:
 						continue
 					vL =np.zeros(len(indexL[i]))
@@ -177,15 +184,16 @@ class DS:
 		#ends
 		vs1=np.zeros(nz)
 		self.model = Model(**self.config.para['modelPara'])
-		self.GC    = Model(**self.config.para['GCPara'])
-		self.GS    = Model(**self.config.para['GSPara'])
 		self.model.write(self.runPath+'/MOD',la,lo,z)
-		self.model.write(self.runPath+'/MODVs.true',la,lo,z,isDiff=True,N=self.config.para['perN']\
-			,A=self.config.para['perA'])
-		self.GS.write(self.runPath+'/MODGs.true',la,lo,z,isDiff=True,N=self.config.para['perN']\
-			,A=self.config.para['perAGs'])
-		self.GC.write(self.runPath+'/MODGc.true',la,lo,z,isDiff=True,N=self.config.para['perN']\
-			,A=self.config.para['perAGc'])
+		if self.mode == 'syn':
+			self.GC    = Model(**self.config.para['GCPara'])
+			self.GS    = Model(**self.config.para['GSPara'])
+			self.model.write(self.runPath+'/MODVs.true',la,lo,z,isDiff=True,N=self.config.para['perN']\
+				,A=self.config.para['perA'])
+			self.GS.write(self.runPath+'/MODGs.true',la,lo,z,isDiff=True,N=self.config.para['perN']\
+				,A=self.config.para['perAGs'])
+			self.GC.write(self.runPath+'/MODGc.true',la,lo,z,isDiff=True,N=self.config.para['perN']\
+				,A=self.config.para['perAGc'])
 		for i in range(nz):
 		  print (dep1[i]),
 	def test(self,fvLL,indexL,stations):
@@ -197,25 +205,38 @@ class DS:
 		periods = ['' for i in range(self.config.para['kmaxRc'])]
 		for i in range(self.config.para['kmaxRc']):
 			self.writeInput(perI=i)
-			self.writeData(fvLL,indexL,stations,perI=i)
-			os.system('cd %s;SurfAAForward dssyn'%self.runPath)
-			with open('%s/surfphase_forward.dat'%self.runPath,'r') as res:
-				for line in res.readlines():
-					if line[0] == '#':
-						# 39.914 116.241 11 2 0
-						tmp = line.split()
-						tmp[-3] = '%d'%(i+1)
-						line='#'
-						for t in tmp[1:]:
-							line += ' '+t
-						line += '\n'
-					periods[i]+=line
-					if np.random.rand()<0.001:
-						print(line)
+			for j in range(3):
+				self.writeData(fvLL,indexL,stations,perI=i,perJ=j,M=3)
+				os.system('cd %s;SurfAAForward dssyn'%self.runPath)
+				with open('%s/surfphase_forward.dat'%self.runPath,'r') as res:
+					for line in res.readlines():
+						if line[0] == '#':
+							# 39.914 116.241 11 2 0
+							tmp = line.split()
+							tmp[-3] = '%d'%(i+1)
+							line='#'
+							for t in tmp[1:]:
+								line += ' '+t
+							line += '\n'
+						else:
+							tmp = line.split()
+							v   = float(tmp[-1])
+							v   *= 1+2*(np.random.rand()-0.5)*0.008
+							tmp[-1] = '%.6f'%v
+							line=''
+							for t in tmp:
+								line += ' '+t
+							line += '\n'
+						periods[i]+=line
+						if np.random.rand()<0.001:
+							print(line)
 			with open('%s/dsin_syn'%self.runPath,'w+') as f:
 				for period in periods:
 					f.write(period)
 	def plotByZ(self):
+		if self.mode == 'syn':
+			self.modelTrue.plotByZ(self.runPath,head='true')
+		self.modelPeriod.plotByZ(self.runPath,head='period')
 		self.modelRes.plotByZ(self.runPath)
 	def plotTK(self):
 		nxyz,la,lo,z = self.config.output()
@@ -234,13 +255,15 @@ class DS:
 			plt.ylim([35,55])
 			plt.close()
 	def loadRes(self):
-		self.modelTrue = Model(self.config,mode='DSFile',runPath=config.runPath,file='ModelVs.true')
-		self.GsTrue = Model(self.config,mode='GSO',runPath=config.runPath,file='ModelGs.true')
-		self.GcTrue = Model(self.config,mode='GCO',runPath=config.runPath,file='ModelGc.true')
-		self.modelInit = Model(self.config,mode='DSFile',runPath=config.runPath,file='MOD')
-		self.modelRes = Model(self.config,mode='DS',runPath=config.runPath,file='Gc_Gs_model.inv')
-		self.GsRes = Model(self.config,mode='GS',runPath=config.runPath,file='Gc_Gs_model.inv')
-		self.GcRes = Model(self.config,mode='GC',runPath=config.runPath,file='Gc_Gs_model.inv')
+		if self.mode == 'syn':
+			self.modelTrue = Model(self.config,mode='DSFile',runPath=self.runPath,file='MODVs.true')
+		self.modelPeriod = Model(self.config,mode='DSP',runPath=self.runPath,file='period_Azm_tomo.inv')
+		#self.GsTrue = Model(self.config,mode='GSO',runPath=self.runPath,file='MODGs.true')
+		#self.GcTrue = Model(self.config,mode='GCO',runPath=self.runPath,file='MODGc.true')
+		#self.modelInit = Model(self.config,mode='DSFile',runPath=self.runPath,file='MOD')
+		self.modelRes = Model(self.config,mode='DS',runPath=self.runPath,file='Gc_Gs_model.inv')
+		#self.GsRes = Model(self.config,mode='GS',runPath=self.runPath,file='Gc_Gs_model.inv')
+		#self.GcRes = Model(self.config,mode='GC',runPath=self.runPath,file='Gc_Gs_model.inv')
 
 class Model:
 	def __init__(self,config=None,mode='DS',runPath='',file='',la='',lo='',z='',self1=''):
@@ -255,15 +278,29 @@ class Model:
 				Lo = data[i,0]
 				La = data[i,1]
 				Z  = data[i,2]
-				v  = data[i,3]
+				V  = data[i,3]
 				i0 = np.abs(la-La).argmin()
 				i1 = np.abs(lo-Lo).argmin()
 				i2 = np.abs(z-Z).argmin()
-				v[i0,i1,i2]=v
+				v[i0,i1,i2]=V
+		if mode =='DSP':
+			data = np.loadtxt(runPath+file)
+			nxyz,la,lo,z = config.outputP()
+			z    = np.array(z)
+			v = np.zeros(nxyz)*0-1
+			for i in range(data.shape[0]):
+				Lo = data[i,0]
+				La = data[i,1]
+				Z  = data[i,2]
+				V  = data[i,3]
+				i0 = np.abs(la-La).argmin()
+				i1 = np.abs(lo-Lo).argmin()
+				i2 = np.abs(z-Z).argmin()
+				v[i0,i1,i2]=V
 		if mode == 'DSFile':
 			nxyz,la,lo,z = config.output()
 			v = np.loadtxt(runPath+file,skiprows=1)
-			v=v.reshape(nxyz[2],nxyz[0],nxyz[1]).transpose([1,2,0])
+			v=v.reshape(nxyz[2],nxyz[1],nxyz[0]).transpose([2,1,0])
 		if mode =='TK':
 			z,la,lo,v=loadModelTK()
 			#.reshape([-1])
@@ -304,8 +341,8 @@ class Model:
 			nxyz,la,lo,z = config.output()
 			v = np.zeros(nxyz)*0+0.01
 			if file!='':
-				v = np.loadtxt(runPath+file,skiprows=1)
-				v=v.reshape(nxyz[2],nxyz[0],nxyz[1]).transpose([1,2,0])
+				v = np.loadtxt(runPath+file)
+				v=v.reshape(nxyz[2],nxyz[1],nxyz[0]).transpose([2,1,0])
 		self.nxyz = [len(la),len(lo),len(z)]
 		self.z  =  z#.reshape([-1,1,1])
 		self.la = la#.reshape([1,-1,1])
@@ -322,8 +359,14 @@ class Model:
 		nxyzTmp = [len(la),len(lo),len(self.z)]
 		v       = np.zeros(nxyz)
 		vTmp    = np.zeros(nxyzTmp)
+		#print(z)
+
 		for i in range(nxyzTmp[-1]):
-			vTmp[:,:,i] = interpolate.interp2d(self.lo, self.la, self.v[:,:,i])(lo,la)
+			vTmp[:,:,i] = interpolate.interp2d(self.lo, self.la, self.v[:,:,i],bounds_error=False,fill_value=1e-8)(lo,la)
+		if la[-1]<la[0]:
+			vTmp = vTmp[::-1]
+		if lo[-1]<lo[0]:
+			vTmp = vTmp[:,::-1]
 		for i in range(nxyz[0]):
 			for j in range(nxyz[1]): 
 				v[i,j,:] = interpolate.interp1d(self.z,vTmp[i,j])(z)
@@ -339,9 +382,9 @@ class Model:
 		resDir = runPath+'/'+'plot/'
 		if not os.path.exists(resDir):
 			os.mkdir(resDir)
-		z = self.z.tolist()
-		z.append(0)
 		nxyz,la,lo,z = self.config.output()
+		if self.mode=='DSP':
+			nxyz,la,lo,z = self.config.outputP()
 		V            =  self.output(la,lo,z)
 		for i in range(self.nxyz[-1]):
 			plt.close()
@@ -349,6 +392,7 @@ class Model:
 			R = [la.min(),la.max(),lo.min(),lo.max()]
 			m = mt.genBaseMap(R)
 			v = V[:,:,i]
+			#print(v[:10,:10])
 			laN, loN = v.shape
 			midLaN = int(1.2/4*laN)
 			midLoN = int(1.2/4*loN)
@@ -358,9 +402,9 @@ class Model:
 			Per   = (v-mean)/mean
 			la,lo,per=denseLaLo(self.la,self.lo,Per)
 			x,y= m(lo,la)
-			vmin=-np.abs(per[midLaN:-midLaN,midLoN:-midLoN]).max()
-			vmax=np.abs(per[midLaN:-midLaN,midLoN:-midLoN]).max()
-			plotPlane(m,x,y,per,R,z,mean,vmin,vmax,isFault=True,head=head)
+			vmin=-np.abs(Per[midLaN:-midLaN,midLoN:-midLoN]).max()
+			vmax=np.abs(Per[midLaN:-midLaN,midLoN:-midLoN]).max()
+			plotPlane(m,x,y,per,R,z[i],mean,vmin,vmax,isFault=True,head=head)
 			plt.savefig('%s/%s_%f.jpg'%(resDir,head,self.z[i]),dpi=500)
 			plt.close()
 	def write(self,filename,la,lo,z,isDiff=False,N=[2,2,2],A=0.05):
@@ -374,13 +418,15 @@ class Model:
 				for j in range(len(lo)):
 					for i in range(len(la)):
 						per=self.diff(isDiff,N,i,j,k,A)
+						#print(N,i,j,k,per)
 						fp.write('%9.3f' % (v[i,j,k]*(1+per)))
 					fp.write('\n')
 	def diff(self,isDiff,N,i,j,k,A):
 		if isDiff:
-			I = int(i/N[0])
-			J = int(j/N[1])
-			K = int(k/N[2])
+			I = int(float(i)/float(N[0]))
+			J = int(float(j)/float(N[1]))
+			K = int(float(k)/float(N[2]))
+			#print(I+J+K)
 			return ((I+J+K)%2-0.5)*2*A
 		else:
 			return 0
@@ -403,7 +449,7 @@ class Model:
 			midLaN = int(1.2/4*laN)
 			midLoN = int(1.2/4*loN)
 			mean = v[midLaN:-midLaN,midLoN:-midLoN].mean()
-			print(mean)
+			#print(mean)
 			dLa,dLo=getDlaDlo(R)
 			v[v<0]=mean
 			v1[v1<0]=mean
@@ -442,9 +488,11 @@ def plotPlane(m,x,y,per,R,z,mean,vmin=-0.05,vmax=0.05,isFault=True,head='res'):
 				fault.plot(m,markersize=0.3)
 	m.pcolor(x,y,per,cmap=cmap,shading='auto')
 	m.drawcoastlines(linewidth=0.8, linestyle='dashdot', color='k')
-	plt.clim(vmin=-vmin,vmax=vmax)
+	plt.clim(vmin=vmin,vmax=vmax)
 	plt.colorbar()
-	plt.title('%s depth: %.2f km mean: %.3f'%(head,z,mean))
+	plt.title('%s %.2f km mean: %.3f'%(head,z,mean))
+	if head=='period':
+		plt.title('%s %.2f s mean: %.3f'%(head,z,mean))
 	dLa,dLo=getDlaDlo(R)
 	plotLaLoLine(m,dLa,dLo)
 

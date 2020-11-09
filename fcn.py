@@ -2,7 +2,7 @@ from tensorflow import keras
 from tensorflow.keras.models import  Model
 from tensorflow.keras.layers import Input, MaxPooling2D,\
   AveragePooling2D,Conv2D,Conv2DTranspose,concatenate,\
-  Dropout,BatchNormalization, Dense
+  Dropout,BatchNormalization, Dense,Softmax
 from tensorflow.python.keras.layers import Layer, Lambda
 from tensorflow.python.keras import initializers, regularizers, constraints, activations
 #LayerNormalization = keras.layers.BatchNormalization
@@ -150,366 +150,6 @@ def printRes(yin, yout):
     print(strL)
     return strL
 
-def inAndOutFunc(config):
-    inputs  = Input(config.inputSize)
-    depth   =  len(config.featureL)
-    convL   = [None for i in range(depth)]
-    dConvL  = [None for i in range(depth)]
-    last    = inputs
-    for i in range(depth):
-        convL[i] = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',\
-            activation = config.activationL[i])(last)
-        last     = config.poolL[i](pool_size=config.strideL[i],\
-            strides=config.strideL[i],padding='same')(convL[i])
-    
-    for i in range(depth-1,-1,-1):
-        dConvL[i]= Conv2DTranspose(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=config.strideL[i],\
-            padding='same',activation=config.activationL[i])(last)
-        last     = concatenate([dConvL[i],convL[i]],axis=3)
-    outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),\
-        padding='same',activation='sigmoid')(last)
-    return inputs,outputs
-
-def inAndOutFuncNew(config):
-    inputs  = Input(config.inputSize)
-    depth   =  len(config.featureL)
-    convL   = [None for i in range(depth)]
-    dConvL  = [None for i in range(depth)]
-    last    = inputs
-    for i in range(depth):
-        if i <4:
-            name = 'conv'
-        else:
-            name = 'CONV'
-        layerStr='_%d_'%i
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',activation = config.activationL[i],\
-            name=name+layerStr+'0',kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-        if i in config.dropOutL:
-            ii   = config.dropOutL.index(i)
-            last =  Dropout(config.dropOutRateL[ii])(last)
-        convL[i] = last
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',activation = config.activationL[i],\
-            name=name+layerStr+'1',kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-        last     = config.poolL[i](pool_size=config.strideL[i],\
-            strides=config.strideL[i],padding='same')(last)
-    for i in range(depth-1,-1,-1):
-        if i <3:
-            name = 'dconv'
-        else:
-            name = 'DCONV'
-        layerStr='_%d_'%i
-        dConvL[i]= Conv2DTranspose(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=config.strideL[i],padding='same',activation=config.activationL[i],\
-            name=name+layerStr+'0',kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-        last     = concatenate([dConvL[i],convL[i]],axis=3)
-    outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),padding='same',activation='sigmoid',name='dconv_out')(last)
-    return inputs,outputs
-
-def inAndOutFuncNewV2(config):
-    inputs  = Input(config.inputSize)
-    depth   =  len(config.featureL)
-    convL   = [None for i in range(depth+1)]
-    dConvL  = [None for i in range(depth+1)]
-    last    = inputs
-    for i in range(depth):
-        if i <4:
-            name = 'conv'
-        else:
-            name = 'CONV'
-        layerStr='_%d_'%i
-        '''
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',activation = config.activationL[i],\
-            name=name+layerStr+'0',kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-        '''
-        '''
-        if i in config.dropOutL:
-            ii   = config.dropOutL.index(i)
-            last =  Dropout(config.dropOutRateL[ii])(last)
-        '''
-        
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',activation = config.activationL[i],\
-            name=name+layerStr+'0',kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-        last = BatchNormalization(axis=3,trainable=True)(last)
-        convL[i] =last
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',activation = config.activationL[i],\
-            name=name+layerStr+'1',kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-        last     = config.poolL[i](pool_size=config.strideL[i],\
-            strides=config.strideL[i],padding='same')(last)
-        if i in config.dropOutL:
-            ii   = config.dropOutL.index(i)
-            last =  Dropout(config.dropOutRateL[ii])(last)
-        else:
-            last = BatchNormalization(axis=3,trainable=True)(last)
-    convL[depth] =last
-    for i in range(depth-1,-1,-1):
-        if i <3:
-            name = 'dconv'
-        else:
-            name = 'DCONV'
-        
-        for j in range(i,-1,-1):
-            layerStr='_%d_%d'%(i,j)
-            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
-            strides=config.strideL[j],padding='same',activation=config.activationL[j],\
-            name=name+layerStr+'0',kernel_initializer=config.initializerL[j],\
-            bias_initializer=config.bias_initializerL[j])(convL[j+1])
-            if j in config.dropOutL:
-                jj   = config.dropOutL.index(j)
-                dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
-            else:
-                dConvL[j] = BatchNormalization(axis=BNA,trainable=True)(dConvL[j])
-            convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
-        
-    outputs = Conv2D(config.outputSize[-1],kernel_size=(4,1),strides=(1,1),\
-        padding='same',activation='sigmoid',name='dconv_out')(convL[0])
-    return inputs,outputs
-
-def inAndOutFuncNewV3(config):
-    inputs  = Input(config.inputSize)
-    depth   =  len(config.featureL)
-    convL   = [None for i in range(depth+1)]
-    dConvL  = [None for i in range(depth+1)]
-    last    = inputs
-    BNA=-1
-    for i in range(depth):
-        if i <4:
-            name = 'conv'
-        else:
-            name = 'CONV'
-        layerStr='_%d_'%i
-        
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',name=name+layerStr+'0',\
-            kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-
-        last = BatchNormalization(axis=BNA,trainable=True)(last)
-
-        last = Activation(config.activationL[i])(last)
-
-        convL[i] =last
-
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',name=name+layerStr+'1',\
-            kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-
-        if i in config.dropOutL:
-            ii   = config.dropOutL.index(i)
-            last =  Dropout(config.dropOutRateL[ii])(last)
-        else:
-            last = BatchNormalization(axis=3,trainable=True)(last)
-
-        last = Activation(config.activationL[i])(last)
-
-        last = config.poolL[i](pool_size=config.strideL[i],\
-            strides=config.strideL[i],padding='same')(last)
-
-    convL[depth] =last
-    for i in range(depth-1,-1,-1):
-        if i <3:
-            name = 'dconv'
-        else:
-            name = 'DCONV'
-        
-        for j in range(i+1):
-
-            layerStr='_%d_%d'%(i,j)
-
-            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
-            strides=config.strideL[j],padding='same',name=name+layerStr+'0',\
-            kernel_initializer=config.initializerL[j],\
-            bias_initializer=config.bias_initializerL[j])(convL[j+1])
-
-            if j in config.dropOutL:
-                jj   = config.dropOutL.index(j)
-                dConvL[j] =  Dropout(config.dropOutRateL[jj])(dConvL[j])
-            else:
-                dConvL[j] = BatchNormalization(axis=BNA,trainable=True)(dConvL[j])
-
-            dConvL[j] = Activation(config.activationL[j])(dConvL[j])
-
-            convL[j]  = concatenate([dConvL[j],convL[j]],axis=3)
-        
-    outputs = Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
-        padding='same',activation='sigmoid',name='dconv_out')(convL[0])
-    return inputs,outputs
-
-def inAndOutFuncNewV4(config, onlyLevel=-10000):
-    BNA = 3
-    inputs  = Input(config.inputSize,name='inputs')
-    depth   =  len(config.featureL)
-    convL   = [None for i in range(depth+1)]
-    dConvL  = [None for i in range(depth+1)]
-    last    = inputs
-    for i in range(depth):
-        if i <4:
-            name = 'conv'
-        else:
-            name = 'CONV'
-        layerStr='_%d_'%i
-        
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',name=name+layerStr+'0',\
-            kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-
-        last = BatchNormalization(axis=BNA,trainable=True,name='BN'+layerStr+'0')(last)
-
-        last = Activation(config.activationL[i],name='AC'+layerStr+'0')(last)
-
-        convL[i] =last
-
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',name=name+layerStr+'1',\
-            kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-
-        if i in config.dropOutL:
-            ii   = config.dropOutL.index(i)
-            last =  Dropout(config.dropOutRateL[ii],name='Dropout'+layerStr+'0')(last)
-        else:
-            last = BatchNormalization(axis=BNA,trainable=True,name='BN'+layerStr+'1')(last)
-
-        last = Activation(config.activationL[i],name='AC'+layerStr+'1')(last)
-
-        last = config.poolL[i](pool_size=config.strideL[i],\
-            strides=config.strideL[i],padding='same',name='PL'+layerStr+'0')(last)
-
-    convL[depth] =last
-    outputsL =[]
-    for i in range(depth-1,-1,-1):
-        if i <3:
-            name = 'dconv'
-        else:
-            name = 'DCONV'
-        
-        for j in range(i+1):
-
-            layerStr='_%d_%d'%(i,j)
-
-            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
-            strides=config.strideL[j],padding='same',name=name+layerStr+'0',\
-            kernel_initializer=config.initializerL[j],\
-            bias_initializer=config.bias_initializerL[j])(convL[j+1])
-
-            if j in config.dropOutL:
-                jj   = config.dropOutL.index(j)
-                dConvL[j] =  Dropout(config.dropOutRateL[jj],name='Dropout_'+layerStr+'0')(dConvL[j])
-            else:
-                dConvL[j] = BatchNormalization(axis=BNA,trainable=True,name='BN_'+layerStr+'0')(dConvL[j])
-
-            dConvL[j] = Activation(config.activationL[j],name='Ac_'+layerStr+'0')(dConvL[j])
-            convL[j]  = concatenate([dConvL[j],convL[j]],axis=BNA,name='conc_'+layerStr+'0')
-            if i <config.deepLevel and j==0:
-                #outputsL.append(Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
-                #padding='same',activation='sigmoid',name='dconv_out_%d'%i)(convL[0]))
-                outputsL.append(Dense(config.outputSize[-1], activation='sigmoid'\
-                    ,name='dense_out_%d'%i)(convL[0]))
-        
-    #outputs = Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
-    #    padding='same',activation='sigmoid',name='dconv_out')(convL[0])
-    if len(outputsL)>1:
-        outputs = concatenate(outputsL,axis=2,name='lastConc')
-    else:
-        outputs = outputsL[-1]
-    if onlyLevel>-100:
-        outputs = outputsL[onlyLevel]
-    return inputs,outputs
-
-def inAndOutFuncNewV5(config, onlyLevel=-10000):
-    inputs  = Input(config.inputSize,name='inputs')
-    depth   =  len(config.featureL)
-    convL   = [None for i in range(depth+1)]
-    dConvL  = [None for i in range(depth+1)]
-    last    = inputs
-    for i in range(depth):
-        if i <4:
-            name = 'conv'
-        else:
-            name = 'CONV'
-        layerStr='_%d_'%i
-        
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',name=name+layerStr+'0',\
-            kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-
-        last = LayerNormalization(trainable=True,name='LN'+layerStr+'0')(last)
-
-        last = Activation(config.activationL[i],name='AC'+layerStr+'0')(last)
-
-        convL[i] =last
-
-        last = Conv2D(config.featureL[i],kernel_size=config.kernelL[i],\
-            strides=(1,1),padding='same',name=name+layerStr+'1',\
-            kernel_initializer=config.initializerL[i],\
-            bias_initializer=config.bias_initializerL[i])(last)
-
-        if i in config.dropOutL:
-            ii   = config.dropOutL.index(i)
-            last =  Dropout(config.dropOutRateL[ii],name='Dropout'+layerStr+'0')(last)
-        else:
-            last = LayerNormalization(trainable=True,name='LN'+layerStr+'1')(last)
-
-        last = Activation(config.activationL[i],name='AC'+layerStr+'1')(last)
-
-        last = config.poolL[i](pool_size=config.strideL[i],\
-            strides=config.strideL[i],padding='same',name='PL'+layerStr+'0')(last)
-
-    convL[depth] =last
-    outputsL =[]
-    for i in range(depth-1,-1,-1):
-        if i <3:
-            name = 'dconv'
-        else:
-            name = 'DCONV'
-        
-        for j in range(i+1):
-
-            layerStr='_%d_%d'%(i,j)
-
-            dConvL[j]= Conv2DTranspose(config.featureL[j],kernel_size=config.kernelL[j],\
-            strides=config.strideL[j],padding='same',name=name+layerStr+'0',\
-            kernel_initializer=config.initializerL[j],\
-            bias_initializer=config.bias_initializerL[j])(convL[j+1])
-
-            if j in config.dropOutL:
-                jj   = config.dropOutL.index(j)
-                dConvL[j] =  Dropout(config.dropOutRateL[jj],name='Dropout_'+layerStr+'0')(dConvL[j])
-            else:
-                dConvL[j] = LayerNormalization(trainable=True,name='LN_'+layerStr+'0')(dConvL[j])
-
-            dConvL[j] = Activation(config.activationL[j],name='Ac_'+layerStr+'0')(dConvL[j])
-            convL[j]  = concatenate([dConvL[j],convL[j]],axis=3,name='conc_'+layerStr+'0')
-            if i <config.deepLevel and j==0:
-                #outputsL.append(Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
-                #padding='same',activation='sigmoid',name='dconv_out_%d'%i)(convL[0]))
-                outputsL.append(Dense(config.outputSize[-1], activation='sigmoid'\
-                    ,name='dense_out_%d'%i)(convL[0]))
-        
-    #outputs = Conv2D(config.outputSize[-1],kernel_size=(8,1),strides=(1,1),\
-    #    padding='same',activation='sigmoid',name='dconv_out')(convL[0])
-    if len(outputsL)>1:
-        outputs = concatenate(outputsL,axis=2,name='lastConc')
-    else:
-        outputs = outputsL[-1]
-    if onlyLevel>-100:
-        outputs = outputsL[onlyLevel]
-    return inputs,outputs
 
 def inAndOutFuncNewV6(config, onlyLevel=-10000):
     BNA = -1
@@ -596,75 +236,13 @@ def inAndOutFuncNewV6(config, onlyLevel=-10000):
         outputs = concatenate(outputsL,axis=2,name='lastConc')
     else:
         outputs = outputsL[-1]
+        if config.mode == 'p' or config.mode == 's'or config.mode == 'ps':
+            if config.outputSize[-1]>1:
+                outputs = Softmax(axis=3)(outputs) 
     if onlyLevel>-100:
         outputs = outputsL[onlyLevel]
     return inputs,outputs
-class fcnConfig:
-    def __init__(self):
-        '''
-        self.inputSize  = [512,1,1]
-        self.outputSize = [512,1,10]
-        self.featureL   = [2**(i+1)+20 for i in range(5)]
-        self.strideL    = [(4,1),(4,1),(4,1),(2,1),(2,1)]
-        self.kernelL    = [(8,1),(8,1),(8,1),(4,1),(2,1)]
-        self.activationL= ['relu','relu','relu','relu','relu']
-        self.poolL      = [AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D]
-        self.lossFunc   = lossFuncSoft
-        '''
-        self.inputSize     = [4096*3,1,4]
-        self.outputSize    = [4096*3,1,50]
-        self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]
-        self.featureL      = [30,40,60,60,80,60,40]
-        self.featureL      = [15,20,20,25,25,40,60]
-        #self.featureL      = [50,50,75,75,100,100,125]
-        #self.featureL      = [25,25,50,50,75,100,125]
-        #self.featureL      = [30,30,50,50,75,125,125]#norm
-        #self.featureL      = [30,30,30,50,50,75,100]#few
-        #self.featureL      = [30,30,30,40,50,50,75]#few-
-        #self.featureL      = [40,40,60,60,80,120,160]#more
-        
-        #self.featureL      = [40,40,80,80,100,120,160]#more+
-        #self.featureL      = [16,32,64,128,256,256,512]#more ++
-        self.featureL      = [32,32,64,64,64,128,128]#[8,16,32,64,128,128,256]
-        self.featureL      = [32,32,32,64,64,64,128]
-        self.featureL      = [32,32,32,64,64,64,128]
-        self.featureL      = [24,24,32,48,48,64,128]
-        self.featureL      = [32,32,48,48,64,64,128]
-        self.featureL      = [32,48,48,64,64,96,128]
-        self.featureL      = [32,32,32,32,48,64,96,128]
-        self.featureL      = [16,32,48,64,128,256,512]#high
-        self.featureL      = [24,32,48,64,128,256,512]
-        #self.featureL      = [32,32,32,48,48,64,128]##best3.2
-        #self.featureL      = [24,24,32,32,48,48,64]#1.8
-        #self.featureL      = [16,16,24,24,32,32,48]#0.9
-        #self.featureL      = [80,120,160,200,200,250,300]#more +++
-        #[min(2**(i+1)+20,60) for i in range(6)]#[min(2**(i+1)+80,120) for i in range(8)]#40
-        self.strideL       = [(2,1),(4,1),(4,1),(4,1),(4,1),(4,1),(6,1),\
-        (4,1),(2,1),(2,1),(2,1)]
-        self.kernelL       = [(6,1),(8,1),(8,1),(8,1),(8,1),(16,1),(6,1),\
-        (8,1),(4,1),(4,1),(4,1)]
-        self.initializerL  = ['truncated_normal' for i in range(10)]
-        self.initializerL  = ['he_normal' for i in range(10)]
-        self.bias_initializerL = ['random_normal' for i in range(10)]
-        self.bias_initializerL = ['he_normal' for i in range(10)]
-        #self.strideL    = [(4,1),(4,1),(4,1),(4,1),(4,1),(2,1),(4,1),(4,1),(2,1),(2,1),(2,1)]
-        #self.kernelL    = [(8,1),(8,1),(8,1),(8,1),(8,1),(4,1),(8,1),(4,1),(4,1),(4,1),(4,1)]
-        self.dropOutL     =[]# [0,1,2]#[5,6,7]#[1,3,5,7]#[1,3,5,7]
-        self.dropOutRateL = []#[0.2,0.2,0.2]#[0.2,0.2,0.2]
-        self.activationL  = ['relu','relu','relu','relu','relu',\
-        'relu','relu','relu','relu','relu','relu']
-        self.activationL  = ['relu','relu']+['swish' for i in range(4)]+['relu']
-        self.poolL        = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
-        AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
-        MaxPooling2D,AveragePooling2D,MaxPooling2D]
-        self.poolL        = [MaxPooling2D,AveragePooling2D,MaxPooling2D,\
-        AveragePooling2D,MaxPooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
-        MaxPooling2D,AveragePooling2D,MaxPooling2D]
-        self.lossFunc     = lossFuncSoft(w=10)#10
-        self.inAndOutFunc = inAndOutFuncNewV6
-        self.deepLevel = 1
-    def inAndOut(self,*argv,**kwarg):
-        return self.inAndOutFunc(self,*argv,**kwarg)
+
 
 class xyt:
     def __init__(self,x,y,t=''):
@@ -684,6 +262,263 @@ class xyt:
     def __len__(self):
         return self.x.shape[0]
 
+
+tTrain = (10**np.arange(0,1.000001,1/29))*16
+
+def trainAndTest(model,corrLTrain,corrLValid,corrLTest,outputDir='predict/',tTrain=tTrain,\
+    sigmaL=[4,3,2,1.5],count0=3,perN=200,w0=4):
+    '''
+    依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
+    '''
+    #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
+    #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
+    #2#4#8#8*3#8#5#10##model.config.lossFunc.w
+    tmpDir =  os.path.dirname(outputDir)
+    if not os.path.exists(tmpDir):
+        os.makedirs(tmpDir)
+    model.plot(outputDir+'model.png')
+    testCount = len(corrLTest)
+    showCount = int(len(corrLTest)*1)
+    showD     = int(showCount/40)
+    resStr = 'testCount %d showCount %d \n'%(testCount,showCount)
+    resStr +='train set setting: %s\n'%corrLTrain
+    resStr +='test  set setting: %s\n'%corrLTest
+    resStr +='perN: %d count0: %d w0: %.5f\n'%(perN, count0, w0)
+    resStr +='sigmaL: %s\n'%sigmaL
+    print(resStr)
+    trainTestLossL =[]
+    for sigma in sigmaL:
+        model.config.lossFunc.w = w0*(1.5/sigma)**0.5
+        corrLTrain.timeDisKwarg['sigma']=sigma
+        corrLTest.timeDisKwarg['sigma']=sigma
+        corrLValid.timeDisKwarg['sigma']=sigma
+        corrLValid.iL=np.array([])
+        corrLTrain.iL=np.array([])
+        corrLTest.iL=np.array([])
+        model.compile(loss=model.config.lossFunc, optimizer='Nadam')
+        xTest, yTest, tTest =corrLValid(np.arange(len(corrLValid)))
+        resStrTmp, trainTestLoss=model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest,\
+            count0=count0, perN=perN)
+        resStr += resStrTmp
+        trainTestLossL.append(trainTestLoss)
+    xTest, yTest, tTest =corrLValid(np.arange(len(corrLValid)))
+    yout=model.predict(xTest)  
+    for threshold in [0.5,0.7,0.8]:
+        corrLValid.plotPickErro(yout,tTrain,fileName=outputDir+'erro_valid.jpg',\
+            threshold=threshold)
+    xTest, yTest, tTest =corrLTest(np.arange(showCount))
+    yout=model.predict(xTest)
+    resStr += '\n test part\n'
+    for level in range(yout.shape[-2]):
+        print('level: %d'%(len(model.config.featureL)\
+            -yout.shape[-2]+level+1))
+        resStr +='\nlevel: %d'%(len(model.config.featureL)\
+            -yout.shape[-2]+level+1)
+        resStr+= printRes_old(yTest, yout[:,:,level:level+1])+'\n'
+        #resStr+= printRes(yTest, yout[:,:,level:level+1])+'\n'
+    head = outputDir+'resStr_'+\
+        obspy.UTCDateTime(time.time()).strftime('%y%m%d-%H%M%S')
+    with open(head+'.log','w') as f:
+        ###save model
+        model.summary(print_fn=lambda x: f.write(x + '\n'))
+        f.write(resStr)
+    for i in range(len(sigmaL)):
+        sigma = sigmaL[i]
+        trainTestLoss = trainTestLossL[i]
+        np.savetxt('%s_sigma%.3f_loss'%(head,sigma),np.array(trainTestLoss))
+    for threshold in [0.5,0.7,0.8]:
+        corrLTest.plotPickErro(yout,tTrain,fileName=outputDir+'erro_test.jpg',\
+                threshold=threshold)
+    model.save(head+'_model')
+    iL=np.arange(0,showCount,showD)
+    for level in range(-1,-model.config.deepLevel-1,-1):
+        model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
+        T=tTrain,outputDir=outputDir,level=level)
+
+
+
+def trainAndTestCross(model0,model1,corrLTrain0,corrLTrain1,corrLTest,outputDir='predict/',tTrain=tTrain,\
+    sigmaL=[4,2],modeL=['conv','conv']):
+    '''
+    依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
+    '''
+    #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
+    #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
+    #different data train different part
+    w0 = 2#5#10##model.config.lossFunc.w
+    for i in range(len(sigmaL)):
+        sigma = sigmaL[i]
+        mode = modeL[i]
+        model0.config.lossFunc.w = w0*(4/sigma)**0.5
+        model1.config.lossFunc.w = w0*(4/sigma)**0.5
+        corrLTrain0.timeDisKwarg['sigma']=sigma
+        corrLTrain1.timeDisKwarg['sigma']=sigma
+        corrLTest.timeDisKwarg['sigma']=sigma
+        corrLTest.iL=np.array([])
+        if mode =='conv':
+            model0.setTrain(['conv','CONV'],True)
+            model1.setTrain([],False)
+            per1=0.5
+        if mode =='anti_conv':
+            model0.setTrain([],False)
+            model1.setTrain(['conv','CONV'],True)
+            per1=0.5
+        if mode =='dconv':
+            model0.setTrain([],False)
+            model1.setTrain(['dconv'],True)
+            per1=2
+        if mode =='None':
+            model0.setTrain([],False)
+            model1.setTrain([],False)
+            per1=0.5
+        if mode =='conv_dconv':
+            model0.setTrain(['conv','CONV'],True)
+            model1.setTrain(['dconv','DCONV'],True)
+            per1 = 0.5
+        if mode =='0':
+            model0.setTrain([],False)
+            model1.setTrain([],True)
+            per1 = 0.5
+        xTest, yTest, tTest =corrLTest(np.arange(2000,4000))
+        model0.trainByXYTCross(model1,corrLTrain0,corrLTrain1,xTest=xTest,yTest=yTest,per1=per1)
+    xTest, yTest, tTest =corrLTest(np.arange(2000))
+    corrLTest.plotPickErro(model0.predict(xTest),tTrain,\
+    fileName=outputDir+'erro.jpg')
+    iL=np.arange(0,1000,50)
+    model0.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
+    T=tTrain,outputDir=outputDir)
+    xTest, yTest, tTest =corrLTrain0(np.arange(10000))
+    corrLTrain0.plotPickErro(model0.predict(xTest),tTrain,\
+    fileName=outputDir+'erro0.jpg')
+    iL=np.arange(0,1000,50)
+    model0.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
+    T=tTrain,outputDir=outputDir+'_0_')
+    xTest, yTest, tTest =corrLTrain1(np.arange(10000))
+    corrLTrain1.plotPickErro(model0.predict(xTest),tTrain,\
+    fileName=outputDir+'erro1.jpg')
+    iL=np.arange(0,1000,50)
+    model0.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
+    T=tTrain,outputDir=outputDir+'_1_')
+
+class fcnConfig:
+    def __init__(self,mode='surf'):
+        self.mode=mode
+        if mode=='surf':
+            self.inputSize     = [4096*3,1,4]
+            self.outputSize    = [4096*3,1,50]
+            self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]
+            self.featureL      = [30,40,60,60,80,60,40]
+            self.featureL      = [15,20,20,25,25,40,60]
+            self.featureL      = [32,32,64,64,64,128,128]#[8,16,32,64,128,128,256]
+            self.featureL      = [32,32,32,64,64,64,128]
+            self.featureL      = [32,32,32,64,64,64,128]
+            self.featureL      = [24,24,32,48,48,64,128]
+            self.featureL      = [32,32,48,48,64,64,128]
+            self.featureL      = [32,48,48,64,64,96,128]
+            self.featureL      = [32,32,32,32,48,64,96,128]
+            self.featureL      = [16,32,48,64,128,256,512]#high
+            self.featureL      = [24,32,48,64,128,256,512]
+            self.strideL       = [(2,1),(4,1),(4,1),(4,1),(4,1),(4,1),(6,1),\
+            (4,1),(2,1),(2,1),(2,1)]
+            self.kernelL       = [(6,1),(8,1),(8,1),(8,1),(8,1),(16,1),(6,1),\
+            (8,1),(4,1),(4,1),(4,1)]
+            self.initializerL  = ['truncated_normal' for i in range(10)]
+            self.initializerL  = ['he_normal' for i in range(10)]
+            self.bias_initializerL = ['random_normal' for i in range(10)]
+            self.bias_initializerL = ['he_normal' for i in range(10)]
+            self.dropOutL     =[]# [0,1,2]#[5,6,7]#[1,3,5,7]#[1,3,5,7]
+            self.dropOutRateL = []#[0.2,0.2,0.2]#[0.2,0.2,0.2]
+            self.activationL  = ['relu','relu','relu','relu','relu',\
+            'relu','relu','relu','relu','relu','relu']
+            self.activationL  = ['relu','relu']+['swish' for i in range(4)]+['relu']
+            self.poolL        = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
+            AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
+            MaxPooling2D,AveragePooling2D,MaxPooling2D]
+            self.poolL        = [MaxPooling2D,AveragePooling2D,MaxPooling2D,\
+            AveragePooling2D,MaxPooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
+            MaxPooling2D,AveragePooling2D,MaxPooling2D]
+            self.lossFunc     = lossFuncSoft(w=10)#10
+            self.inAndOutFunc = inAndOutFuncNewV6
+            self.deepLevel = 1
+        elif mode == 'p' or mode=='s':
+            self.inputSize     = [2000,1,3]
+            self.outputSize    = [2000,1,1]
+            self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]#high
+            self.featureL      = [8,16,32,64,128,256,512]
+            self.strideL       = [(2,1),(2,1),(2,1),(2,1),(5,1),(5,1),(5,1)]
+            self.kernelL       = [(4,1),(4,1),(4,1),(4,1),(10,1),(10,1),(10,1),\
+            (8,1),(4,1),(4,1),(4,1)]
+            self.initializerL  = ['truncated_normal' for i in range(10)]
+            self.initializerL  = ['he_normal' for i in range(10)]
+            self.bias_initializerL = ['random_normal' for i in range(10)]
+            self.bias_initializerL = ['he_normal' for i in range(10)]
+            self.dropOutL     =[]# [0,1,2]#[5,6,7]#[1,3,5,7]#[1,3,5,7]
+            self.dropOutRateL = []#[0.2,0.2,0.2]#[0.2,0.2,0.2]
+            self.activationL  = ['relu','relu','relu','relu','relu',\
+            'relu','relu','relu','relu','relu','relu']
+            self.activationL  = ['relu','relu']+['swish' for i in range(4)]+['relu']
+            self.poolL        = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
+            AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
+            MaxPooling2D,AveragePooling2D,MaxPooling2D]
+            self.poolL        = [MaxPooling2D,AveragePooling2D,MaxPooling2D,\
+            AveragePooling2D,MaxPooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
+            MaxPooling2D,AveragePooling2D,MaxPooling2D]
+            if mode=='p':
+                self.lossFunc     = lossFuncNew#10
+            elif mode =='s': 
+                self.lossFunc     = lossFuncNewS
+            self.inAndOutFunc = inAndOutFuncNewV6
+            self.deepLevel = 1
+    def inAndOut(self,*argv,**kwarg):
+        return self.inAndOutFunc(self,*argv,**kwarg)
+
+w1=np.ones(1500)*0.5
+w0=np.ones(250)*(-0.75)
+w2=np.ones(250)*(-0.25)
+w=np.append(w0,w1)
+w=np.append(w,w2)
+wY=K.variable(w.reshape((1,2000,1,1)))
+
+w11=np.ones(1500)*0
+w01=np.ones(250)*(-0.75)*0
+w21=np.ones(250)*(-0.25)*0
+w1=np.append(w01,w11)
+w1=np.append(w1,w21)
+W1=w1.reshape((1,2000,1,1))
+wY1=K.variable(W1)
+wY1Short=K.variable(W1[:,200:1800])
+wY1Shorter=K.variable(W1[:,400:1600])
+wY1500=K.variable(W1[:,250:1750])
+W2=np.zeros((1,2000,1,3))
+W2[0,:,:,0]=W1[0,:,:,0]*0+(1-0.13)
+W2[0,:,:,1]=W1[0,:,:,0]*0+(1-0.13)
+W2[0,:,:,2]=W1[0,:,:,0]*0+0.13
+wY2=K.variable(W2)
+
+def lossFuncNew(y,yout):
+
+    yW=(K.sign(-y-0.1)+1)*10*(K.sign(yout-0.35)+1)+1
+    y=(K.sign(y+0.1)+1)*y/2
+    y0=0.13
+    return -K.mean((y*K.log(yout+1e-9)/y0+(1-y)*(K.log(1-yout+1e-9))/(1-y0))*(y*0+1)*(1+K.sign(y)*wY1)*yW,axis=[0,1,2,3])
+
+def lossFuncNewS(y,yout):
+    y=y
+    yW=(K.sign(-y-0.1)+1)*10*(K.sign(yout-0.35)+1)+1
+    y=(K.sign(y+0.1)+1)*y/2
+    y0=0.13
+    return -K.mean((y*K.log(yout+1e-9)/y0+(1-y)*(K.log(1-yout+1e-9))/(1-y0))*(y*0+1)*(1+K.sign(y)*wY1)*yW,axis=[0,1,2,3])  
+
+def genModel0(modelType='norm',phase='p'):
+    return model(config=fcnConfig(mode=phase),channelList=[0,1,2]),2000,1
+'''
+
+for i in range(10):
+    plt.plot(inputData[i,:,0,0]/5,'k',linewidth=0.3)
+    plt.plot(probP[i,:,0,0].transpose(),'b',linewidth=0.3)
+    plt.plot(probS[i,:,0,0].transpose(),'r',linewidth=0.3)
+    plt.show()
+'''
 class model(Model):
     def __init__(self,weightsFile='',config=fcnConfig(),metrics=rateNp,\
         channelList=[1,2,3,4],onlyLevel=-1000):
@@ -717,18 +552,15 @@ class model(Model):
     def plot(self,filename='model.png'):
         plot_model(self, to_file=filename)
     def inx(self,x):
-        #return x/x.max(axis=(1,2,3),keepdims=True)
-        '''
-        if x.shape[-1]==4:
-            x[:,:,:,:2]/=x[:,:,:,:2].std(axis=(1,2,3),keepdims=True)+1e-12
-            x[:,:,:,2:]/=x[:,:,:,2:].std(axis=(1,2,3),keepdims=True)+1e-12
-        '''
-        if x.shape[-1] > len(self.channelList):
-            x = x[:,:,:,self.channelList]
-        timeN0 = np.float32(x.shape[1])
-        timeN  = (x!=0).sum(axis=1,keepdims=True).astype(np.float32)
-        timeN *= 1+0.2*(np.random.rand(*timeN.shape).astype(np.float32)-0.5)
-        x/=(x.std(axis=(1,2),keepdims=True))*(timeN0/timeN)**0.5
+        if self.config.mode=='surf':
+            if x.shape[-1] > len(self.channelList):
+                x = x[:,:,:,self.channelList]
+            timeN0 = np.float32(x.shape[1])
+            timeN  = (x!=0).sum(axis=1,keepdims=True).astype(np.float32)
+            timeN *= 1+0.2*(np.random.rand(*timeN.shape).astype(np.float32)-0.5)
+            x/=(x.std(axis=(1,2),keepdims=True))*(timeN0/timeN)**0.5
+        else:
+            x/=x.std(axis=(1,2,3),keepdims=True)
         return x
     def __call__(self,x):
         return super(Model, self).__call__(K.tensor(self.inx(x)))
@@ -953,151 +785,3 @@ class model(Model):
 
         self.compile(loss=self.config.lossFunc, optimizer='Nadam')
         K.set_value(self.optimizer.lr,  lr0)
-
-tTrain = (10**np.arange(0,1.000001,1/29))*16
-
-def trainAndTest(model,corrLTrain,corrLValid,corrLTest,outputDir='predict/',tTrain=tTrain,\
-    sigmaL=[4,3,2,1.5],count0=3,perN=200,w0=4):
-    '''
-    依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
-    '''
-    #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
-    #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    #2#4#8#8*3#8#5#10##model.config.lossFunc.w
-    tmpDir =  os.path.dirname(outputDir)
-    if not os.path.exists(tmpDir):
-        os.makedirs(tmpDir)
-    model.plot(outputDir+'model.png')
-    testCount = len(corrLTest)
-    showCount = int(len(corrLTest)*1)
-    showD     = int(showCount/40)
-    resStr = 'testCount %d showCount %d \n'%(testCount,showCount)
-    resStr +='train set setting: %s\n'%corrLTrain
-    resStr +='test  set setting: %s\n'%corrLTest
-    resStr +='perN: %d count0: %d w0: %.5f\n'%(perN, count0, w0)
-    resStr +='sigmaL: %s\n'%sigmaL
-    print(resStr)
-    trainTestLossL =[]
-    for sigma in sigmaL:
-        model.config.lossFunc.w = w0*(1.5/sigma)**0.5
-        corrLTrain.timeDisKwarg['sigma']=sigma
-        corrLTest.timeDisKwarg['sigma']=sigma
-        corrLValid.timeDisKwarg['sigma']=sigma
-        corrLValid.iL=np.array([])
-        corrLTrain.iL=np.array([])
-        corrLTest.iL=np.array([])
-        model.compile(loss=model.config.lossFunc, optimizer='Nadam')
-        xTest, yTest, tTest =corrLValid(np.arange(len(corrLValid)))
-        resStrTmp, trainTestLoss=model.trainByXYT(corrLTrain,xTest=xTest,yTest=yTest,\
-            count0=count0, perN=perN)
-        resStr += resStrTmp
-        trainTestLossL.append(trainTestLoss)
-    xTest, yTest, tTest =corrLValid(np.arange(len(corrLValid)))
-    yout=model.predict(xTest)  
-    for threshold in [0.5,0.7,0.8]:
-        corrLValid.plotPickErro(yout,tTrain,fileName=outputDir+'erro_valid.jpg',\
-            threshold=threshold)
-    xTest, yTest, tTest =corrLTest(np.arange(showCount))
-    yout=model.predict(xTest)
-    resStr += '\n test part\n'
-    for level in range(yout.shape[-2]):
-        print('level: %d'%(len(model.config.featureL)\
-            -yout.shape[-2]+level+1))
-        resStr +='\nlevel: %d'%(len(model.config.featureL)\
-            -yout.shape[-2]+level+1)
-        resStr+= printRes_old(yTest, yout[:,:,level:level+1])+'\n'
-        #resStr+= printRes(yTest, yout[:,:,level:level+1])+'\n'
-    head = outputDir+'resStr_'+\
-        obspy.UTCDateTime(time.time()).strftime('%y%m%d-%H%M%S')
-    with open(head+'.log','w') as f:
-        ###save model
-        model.summary(print_fn=lambda x: f.write(x + '\n'))
-        f.write(resStr)
-    for i in range(len(sigmaL)):
-        sigma = sigmaL[i]
-        trainTestLoss = trainTestLossL[i]
-        np.savetxt('%s_sigma%.3f_loss'%(head,sigma),np.array(trainTestLoss))
-    for threshold in [0.5,0.7,0.8]:
-        corrLTest.plotPickErro(yout,tTrain,fileName=outputDir+'erro_test.jpg',\
-                threshold=threshold)
-    model.save(head+'_model')
-    iL=np.arange(0,showCount,showD)
-    for level in range(-1,-model.config.deepLevel-1,-1):
-        model.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
-        T=tTrain,outputDir=outputDir,level=level)
-
-
-
-def trainAndTestCross(model0,model1,corrLTrain0,corrLTrain1,corrLTest,outputDir='predict/',tTrain=tTrain,\
-    sigmaL=[4,2],modeL=['conv','conv']):
-    '''
-    依次提高精度要求，加大到时附近权重，以在保证收敛的同时逐步提高精度
-    '''
-    #xTrain, yTrain, timeTrain =corrLTrain(np.arange(0,20000))
-    #model.show(xTrain,yTrain,time0L=timeTrain ,delta=1.0,T=tTrain,outputDir=outputDir+'_train')
-    #different data train different part
-    w0 = 2#5#10##model.config.lossFunc.w
-    for i in range(len(sigmaL)):
-        sigma = sigmaL[i]
-        mode = modeL[i]
-        model0.config.lossFunc.w = w0*(4/sigma)**0.5
-        model1.config.lossFunc.w = w0*(4/sigma)**0.5
-        corrLTrain0.timeDisKwarg['sigma']=sigma
-        corrLTrain1.timeDisKwarg['sigma']=sigma
-        corrLTest.timeDisKwarg['sigma']=sigma
-        corrLTest.iL=np.array([])
-        if mode =='conv':
-            model0.setTrain(['conv','CONV'],True)
-            model1.setTrain([],False)
-            per1=0.5
-        if mode =='anti_conv':
-            model0.setTrain([],False)
-            model1.setTrain(['conv','CONV'],True)
-            per1=0.5
-        if mode =='dconv':
-            model0.setTrain([],False)
-            model1.setTrain(['dconv'],True)
-            per1=2
-        if mode =='None':
-            model0.setTrain([],False)
-            model1.setTrain([],False)
-            per1=0.5
-        if mode =='conv_dconv':
-            model0.setTrain(['conv','CONV'],True)
-            model1.setTrain(['dconv','DCONV'],True)
-            per1 = 0.5
-        if mode =='0':
-            model0.setTrain([],False)
-            model1.setTrain([],True)
-            per1 = 0.5
-        xTest, yTest, tTest =corrLTest(np.arange(2000,4000))
-        model0.trainByXYTCross(model1,corrLTrain0,corrLTrain1,xTest=xTest,yTest=yTest,per1=per1)
-    xTest, yTest, tTest =corrLTest(np.arange(2000))
-    corrLTest.plotPickErro(model0.predict(xTest),tTrain,\
-    fileName=outputDir+'erro.jpg')
-    iL=np.arange(0,1000,50)
-    model0.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
-    T=tTrain,outputDir=outputDir)
-    xTest, yTest, tTest =corrLTrain0(np.arange(10000))
-    corrLTrain0.plotPickErro(model0.predict(xTest),tTrain,\
-    fileName=outputDir+'erro0.jpg')
-    iL=np.arange(0,1000,50)
-    model0.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
-    T=tTrain,outputDir=outputDir+'_0_')
-    xTest, yTest, tTest =corrLTrain1(np.arange(10000))
-    corrLTrain1.plotPickErro(model0.predict(xTest),tTrain,\
-    fileName=outputDir+'erro1.jpg')
-    iL=np.arange(0,1000,50)
-    model0.show(xTest[iL],yTest[iL],time0L=tTest[iL],delta=1.0,\
-    T=tTrain,outputDir=outputDir+'_1_')
-
-
-    
-'''
-
-for i in range(10):
-    plt.plot(inputData[i,:,0,0]/5,'k',linewidth=0.3)
-    plt.plot(probP[i,:,0,0].transpose(),'b',linewidth=0.3)
-    plt.plot(probS[i,:,0,0].transpose(),'r',linewidth=0.3)
-    plt.show()
-'''

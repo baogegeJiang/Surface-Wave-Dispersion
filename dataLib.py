@@ -83,6 +83,11 @@ class filePath:
         elif nameMode == 'CEAO':
             time = time+8*3600
             pattern = '%s/%s/%s*%s.sac'%(staDir,time.strftime('%Y%m%d/'),sta,comp)
+        elif nameMode =='YNSC':
+            pattern='%s/%s/%s/%s/%s.D/%s.%s.00.%s.D.%s.%s'\
+            %(staDir,time.strftime('%Y'),net,sta,comp,net,sta,comp,\
+                time.strftime('%Y'),time.strftime('%j'))
+
         #print('##',pattern)
         return glob(pattern)
     def getStaDirL(self,net,sta,nameMode=''):
@@ -102,6 +107,8 @@ class filePath:
             staDirL = ['/net/CEA/CEA_*/']
         if staName in self.himaDir:
             staDirL = self.himaDir[staName]
+        if nameMode =='YNSC':
+            staL = ['/net/CEA/CEA?/net_??/']
         return staDirL
     def getSensorDas(self,net,sta,nameMode=''):
         if nameMode == '':
