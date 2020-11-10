@@ -14,7 +14,7 @@ import names
 detecQuake.maxA=1e4
 
 
-workDir='/home/jiangyr/accuratePickerV3/testNew/'# workDir: the dir to save the results
+workDir='/home/jiangyr/detecQuake/'# workDir: the dir to save the results
 staLstFile='stations/SCYN_withComp_ac'#station list file
 bSec=UTCDateTime(2014,1,1).timestamp#begain date
 eSec=UTCDateTime(2014,2,1).timestamp# end date
@@ -22,7 +22,6 @@ laL=[23,33]#area: [min latitude, max latitude]
 loL=[96,107]#area: [min longitude, max longitude]
 laN=35 #subareas in latitude
 loN=35 #subareas in longitude
-nameFunction=names.CEAName # the function you give in (2)  to get the file path
 maxD=35#max ts-tp
 f=[2,15]
 
@@ -46,8 +45,7 @@ for date in range(int(bSec),int(eSec), 86400):
     date=UTCDateTime(float(date))
     print('pick on ',date)
     staL = detecQuake.getStaL(staInfos, aMat, staTimeML,\
-     modelL, date, getFileName=nameFunction,\
-     mode='norm',f=f,maxD=maxD)
+     modelL, date, mode='norm',f=f,maxD=maxD)
     quakeLs.append(detecQuake.associateSta(staL, aMat, \
         staTimeML, timeR=30, maxDTime=2, N=1,locator=\
         locator(staInfos),maxD=maxD))

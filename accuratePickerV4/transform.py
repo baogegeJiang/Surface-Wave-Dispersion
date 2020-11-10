@@ -42,8 +42,8 @@ Dxj05（含强震）/  Dxy05/            Dxy11/            Dxy17/
 
 from glob import glob
 resDir = '/HOME/jiangyr/YNSC_SAC/'
-dataDir='/NET/admin/YNSC/2/2015*/'
-logFile='test.log10'
+dataDir='/NET/admin/YNSC/2/2014*/'
+logFile='test.log11'
 if not  os.path.exists(resDir):
 	os.makedirs(resDir)
 net = 'XU'

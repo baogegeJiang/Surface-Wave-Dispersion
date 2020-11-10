@@ -8,7 +8,7 @@ from fk import FK,getSourceSacName,FKL
 import os 
 from scipy import io as sio
 import obspy
-from multiprocessing import Process, Manager
+from multiprocessing import Process, Manager,Pool
 import random
 import seism
 from distaz import DistAz
@@ -19,7 +19,7 @@ from mathFunc import fitexp
 from numba import jit
 from sklearn import cluster
 import multiprocessing
-c
+
 '''
 the specific meaning of them you can find in Chen Xiaofei's paper
 (A systematic and efficient method of computing normal modes for multilayered half-space)
@@ -1043,6 +1043,12 @@ class fv:
             self.std = self.f*0+99
             if len(input)>2:
                 self.std = input[2]
+        if mode == 'dis':
+            self.f = input[0]
+            self.v = input[1]
+            self.std = self.f*0+99
+            if len(input)>2:
+                self.std = input[2]
         if mode == 'file':
             fvM = np.loadtxt(input)
             self.f = fvM[:,0]
@@ -1126,6 +1132,8 @@ class fv:
         if self.mode == 'fileP':
             return interpolate.interp2d(self.dist,self.f,self.v,kind='linear',\
                 bounds_error=False,fill_value=1e-8)
+        elif self.mode == 'dis':
+            pass
         else:
             if len(self.std)>0:
                 self.STD = interpolate.interp1d(self.f,self.std,kind='linear',\
@@ -1345,6 +1353,139 @@ def getFVFromPairFile(file,fvD={},quakeD={},isPrint=True):
         if isPrint:
             print(len(quakeD.keys()))
 
+def getFVFromPairFileDis(file,fvD={},quakeD={},isPrint=True):
+    with open(file) as f :
+        lines = f.readlines()
+    stat='next'
+    #staDir = file.split('/')[-3]
+    fileName = file.split('/')[-1]
+    if fileName[:3]=='pvt':
+        staDir = file.split('/')[-3]
+    else:
+        staDir = fileName.split('-')[0]
+    pairKey = staDir
+    for line in lines:
+        #print(stat)
+        if len(line.split())==0:
+            print(file,line)
+            continue
+        if stat=='next':
+            sta0 = line.split()[0]
+            sta1 = line.split()[1]
+            stat = 'comp0'
+            continue
+        if stat=='comp0':
+            stat ='quakeTime0'
+            continue
+        if stat =='quakeTime0':
+            timeL =[int(tmp) for tmp in line.split()[:-1]]
+            timeL.append(float(line.split()[-1]))
+            time = obspy.UTCDateTime(*timeL)
+            stat='sta1Loc'
+            continue
+        if stat=='sta1Loc':
+            sta1La, sta1Lo = line.split()[:2]
+            if len(line.split())>2:
+                stat='deltaLoc0'
+                sta1La = float(sta1La)
+                sta1Lo = float(sta1Lo[:10])
+                la = float(line.split()[1][10:])
+                lo = float(line.split()[2])
+                dep= float(line.split()[3])
+                ml = float(line.split()[4])
+                continue
+            sta1La = float(sta1La)
+            sta1Lo = float(sta1Lo)
+            stat='QuakeInfo0'
+            continue
+        if stat=='QuakeInfo0':
+            la = float(line.split()[0])
+            lo = float(line.split()[1])
+            dep= float(line.split()[2])
+            ml = float(line.split()[3])
+            stat='deltaLoc0'
+            continue
+        if stat=='deltaLoc0':
+            stat='comp1'
+            continue
+        if stat=='comp1':
+            stat ='quakeTime1'
+            continue
+        if stat =='quakeTime1':
+            stat='sta0Loc'
+            continue
+        if stat=='sta0Loc':
+            sta0La, sta0Lo = line.split()[:2]
+            if len(line.split())>2:
+                stat='deltaLoc1'
+                sta0La = float(sta0La)
+                sta0Lo = float(sta0Lo[:10])
+                la = float(line.split()[1][10:])
+                lo = float(line.split()[2])
+                dep= float(line.split()[3])
+                ml = float(line.split()[4])
+                continue
+            sta0La = float(sta0La)
+            sta0Lo = float(sta0Lo)
+            stat='QuakeInfo1'
+            continue
+        if stat=='QuakeInfo1':
+            stat='deltaLoc1'
+            continue
+        if stat=='deltaLoc1':
+            stat='fNum'
+            continue
+        if stat== 'fNum':
+            fNum = int(line.split()[1])
+            if fNum == 0:
+                stat='next'
+                continue
+            f = np.zeros(fNum)
+            v = []
+            p = []
+            std = np.zeros(fNum)
+            stat= 'f'
+            i =0
+            continue
+
+        if stat=='f':
+            #print(line,fNum)
+            f[i]=float(line)
+            i+=1
+            if i ==fNum:
+                stat='v'
+                i=0
+                continue
+        if stat=='v':
+            lineS = line.split()
+            NS=len(lineS)
+            v.append([float(s) for s in lineS[:NS/2] ])
+            p.append([float(s) for s in lineS[NS/2:] ])
+            i+=1
+            if i ==fNum:
+                stat ='next'
+                az0  = DistAz(la,lo,sta0La,sta0Lo).getAz()
+                az1  = DistAz(la,lo,sta1La,sta1Lo).getAz()
+                baz0 = DistAz(la,lo,sta0La,sta0Lo).getBaz()
+                az01 = DistAz(sta0La,sta0Lo,sta1La,sta1Lo).getAz()
+                if (az0-az1+10)%360>20:
+                    continue
+                if (baz0-az01+10)%180>20:
+                    continue     
+                quake = seism.Quake(time=time,la=la,lo=lo,dep=dep,ml=ml)
+                name = quake.name('_')
+                if name not in quakeD:
+                    quakeD[name]=quake
+                key='%s_%s'%(name,pairKey)
+                if len(f)<2:
+                    continue
+                #if time > obspy.UTCDateTime(2009,1,1)+182*86400:
+                #    continue
+                fvD[key]=fv([f,v,p],mode='dis')                
+                continue
+        if isPrint:
+            print(len(quakeD.keys()))
+
 def qcFvD(fvD):
     keyL = []
     for key in fvD:
@@ -1375,6 +1516,45 @@ def averageFVL(fvL,minSta=5,threshold=2.5):
         v[i] = MEAN
         std[i] = STD
     return fv([f,v,std])
+def averageFVDis(fvL,minSta=5,threshold=2.5):
+    fL =[]
+    VL =np.arange(1.5,6,0.005)
+    for FV in fvL:
+        f = FV.f
+        for F in f:
+            if F not in fL:
+                fL.append(F)
+    FL=np.array(fL)
+    vM=np.zeros[len(FL),len(VL)]
+    for fv in fvL:
+        for i in range(fv.f):
+            f   = fv.f[i]
+            vL  = fv.v[i]
+            prob= fv.std[i]
+            fIndex =np.abs(FL-f).argmin()
+            for j in range(len(vL)):
+                vIndex = np.abs(VL-vL[i]).argmin()
+                if np.abs(VL-vL[i]).min()>0.005:
+                    continue
+                vM[fIndex,vIndex]+=prob[j]
+                if vIndex>0:
+                    vM[fIndex,vIndex-1]+=prob[j]/2
+                if vIndex<len(VL)-1:
+                    vM[fIndex,vIndex+1]+=prob[j]/2
+    fL =[]
+    vL =[]
+    std=[]
+    for i in range(len(FL)):
+        v = VL[vM[i].argmax()]
+        prob = vM[i].max()
+        stdProb = vM[i].std()
+        mul = prob/stdProb
+        if mul>5:
+            fL .append(FL[i])
+            vL.append(v)
+            std.append(-mul)
+    return fv([np.array(f),np.array(v),np.array(std)])
+
 
 def fvD2fvM(fvD,isDouble=False):
     fvM = {}
@@ -2049,6 +2229,16 @@ class corrL(list):
             print('find in ',i0,i1)
             pos = yout[:,i0:i1,0,:].argmax(axis=1)+i0
             prob = pos.astype(np.float64)*0
+            vM = []
+            probM=[]
+            for i in range(pos.shape[0]):
+                vM.append([])
+                probM.append([])
+                for j in range(pos.shape[1]):
+                    POS=np.where(yout[i,i0:i1,0,j]>0.5)[0]+i0
+                    time= self.t0L[i]+pos*self.deltaL[i]
+                    vM[-1].append(self.dDisL[i]/time)
+                    probM[-1].append(yout[i,pos,0,j])
             for i in range(pos.shape[0]):
                 for j in range(pos.shape[1]):
                     prob[i,j] = yout[i,pos[i,j],0,j]
@@ -2125,7 +2315,7 @@ class corrL(list):
                         '''
                     time     = self.t0L[i]+pos*self.deltaL[i]
                     v[i,j]   = self.dDisL[i]/time
-        return v,prob
+        return v,prob,vM,probM
     def saveV(self,v,prob,T,iL=[],stations=[], minProb= 0.7,resDir ='models/predict/'):
         '''
         if len(iL) ==0:
@@ -2197,6 +2387,84 @@ class corrL(list):
                     f.write('%f\n'%(1/T[ii]))
                 for ii in vIndex:
                     f.write('%f %f\n'%(v[i][ii],-prob[i][ii]))
+    def saveVAll(self,v,prob,T,iL=[],stations=[], minProb= 0.7,resDir ='models/predict/'):
+        '''
+        if len(iL) ==0:
+            iL=self.iL
+        for i in range(v.shape[0]):
+            index = iL[i]
+            corr  = self[index]
+            f.write('%s %s %s %s | '%(corr.srcSac, corr.modelFile, corr.name0, corr.name1))
+            for tmp in T:
+                f.write(' %.3f '% (1/tmp))
+            f.write('|')
+            for tmp in v[i]:
+                f.write(' %.3f '% tmp)
+            f.write('|')
+            for tmp in prob[i]:
+                f.write(' %.3f '% tmp)
+            f.write('\n')
+        '''
+        '''
+        NE31 NE32
+        BHZ 5
+        2010 9 1 7 32 56
+        42.670818 117.070084
+        37.930000 142.059998 50.299999 5.162567 0.000000
+        19.612045 95.567268 0.000000 0.000000
+        BHZ 5
+        2010 9 1 7 32 56
+        42.696079 116.081772
+        37.930000 142.059998 50.299999 5.162567 0.000000
+        20.340097 94.787933 0.000000 0.000000
+        2 9
+        0.033819
+        3.684213 
+        '''
+        if len(iL) ==0:
+            iL=self.iL
+        for i in range(v.shape[0]):
+            index = iL[i]
+            corr  = self[index]
+            sta0,sta1 = corr.getStaName()
+            station0 = stations.Find(sta0)
+            station1 = stations.Find(sta1)
+            timeStr, laStr, loStr =corr.quakeName.split('_')
+            time = float(timeStr)
+            la   = float(laStr)
+            lo   = float(loStr)
+            #YP.NE31/YP.NE31_YP.NE32/Rayleigh
+            fileDir = '%s/%s/%s_%s/Rayleigh/'%(resDir,sta0,sta0,sta1)
+            if not os.path.exists(fileDir):
+                os.makedirs(fileDir)
+            file = fileDir+'pvt_all.dat'
+            vIndex =[]
+            for j in range(len(prob[i])):
+                if (prob[i][j]>minProb).sum()>0:
+                    vIndex.append(j)
+            if len(vIndex)==0:
+                continue
+            with open(file,'a') as f:
+                f.write('%s %s\n'%(station0['sta'],station1['sta']))
+                f.write('%s 5\n'%(station0['comp'][-1]))
+                f.write(obspy.UTCDateTime(time).strftime('%Y %m %d %H %M %S\n'))
+                f.write('%f %f\n'%(station0['la'],station0['lo']))
+                f.write('%f %f -1 -1 0\n'%(la,lo))
+                f.write('%f %f 0 0 \n'%(corr.dis[0], corr.az[0]))
+                f.write('%s 5\n'%(station1['comp'][-1]))
+                f.write(obspy.UTCDateTime(time).strftime('%Y %m %d %H %M %S\n'))
+                f.write('%f %f\n'%(station1['la'],station1['lo']))
+                f.write('%f %f -1 -1 0\n'%(la,lo))
+                f.write('%f %f 0 0 \n'%(corr.dis[1], corr.az[1]))
+                f.write('2 %d\n'%len(vIndex))
+                for ii in vIndex:
+                    f.write('%f\n'%(1/T[ii]))
+                for ii in vIndex:
+                    for j in range(prob[i][ii]):
+                        if prob[i][ii][j]>minProb:
+                            f.write('%f '%v[i][ii][j])
+                            f.write('%f '%prob[i][ii][j])
+                        f.write('\n')
     def saveVByPair(self,v,prob,T,iL=[],stations=[], minProb= 0.7,resDir ='models/predict/'):
         '''
         if len(iL) ==0:
@@ -2267,7 +2535,7 @@ class corrL(list):
                 for ii in vIndex:
                     f.write('%f\n'%(1/T[ii]))
                 for ii in vIndex:
-                    f.write('%f\n'%v[i][ii])
+                    f.write('%f %f\n'%(v[i][ii],-prob[i][ii]))
     def getAndSaveOld(self,model,fileName,stations,isPlot=False,isSimple=True,\
         D=0.2,isLimit=False,isFit = False,minProb=0.7):
         N = len(self)
@@ -2290,8 +2558,9 @@ class corrL(list):
             print('predict')
             Y=model.predict(x)
             print('calV')
-            v[i0:i1],prob[i0:i1]=self.getV(Y,isSimple=isSimple,\
+            v[i0:i1],prob[i0:i1],vM,probM=self.getV(Y,isSimple=isSimple,\
                 D=D,isLimit=isLimit,isFit=isFit)
+            self.saveVAll(vM,probM,T,self.indexL,stations,resDir =resDir,minProb=minProb)
             #v0[i0:i1],prob0[i0:i1]=self.getV(y)
         self.saveV(v,prob,T, np.arange(N),stations,resDir =resDir,minProb=minProb)
         if isPlot:
@@ -2373,7 +2642,7 @@ class corrL(list):
                     indexL = np.array(indexM[i][j]).astype(np.int)
                     print(staL[i],staL[j],len(indexL))
                     x, y, t= self(indexL)
-                    V,Prob=self.getV(model.predict(x),isSimple=isSimple,\
+                    V,Prob,vM,probM=self.getV(model.predict(x),isSimple=isSimple,\
                         D=D,isLimit=isLimit,isFit=isFit)
                     V0,Prob0=self.getV(y)
                     self.saveVByPair(V,Prob,T, indexL,stations,resDir =resDir,minProb=minProb)

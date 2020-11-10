@@ -14,6 +14,7 @@ import time
 import multiprocessing
 from multiprocessing import Process, Manager,Pool
 from glob import glob
+import random
 
 
 def getTimeLim(sacs):
@@ -696,7 +697,8 @@ def getXYFromSTEAD(c,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     if oIndex==None:
         i0=int((np.random.rand(1))*(l-dIndex-200)+100)
         if np.random.rand()<0.5 and pSample>0:
-            i0 = int(min(l-dIndex-100,np.random.rand()*pSample))
+            i0 = int(extend/decimateN+min(l-dIndex-100,np.random.rand()*(pSample-extend/decimateN)))
+            i0 = min(l-dIndex-100,i0)
     else:
         i0=oIndex
     X=X[i0:i0+dIndex].reshape([dIndex,1,3])
@@ -736,10 +738,10 @@ def doOne(l):
     if len(tmpX)==0 or len(tmpY)==0:
         return
     if wType!='phase_no' and tmpX.std(axis=0).min()>0:
-       resL.append([tmpX,tmpY,wType])
+       resL.append([tmpX,tmpY,wType,c.mode])
 
 def getXYFromCatalogP(catalog,w,delta0=0.01,\
-    delta=0.02,dtP=0.1,dtS=0.2,f=[2,20],\
+    delta=0.02,dtP=0.1,dtS=0.2,f=[0.5,20],\
     order=2,oIndex=None,dIndex=2000,channelIndex=0,\
     maxPS=20*0.7):
     decimateN=1#int(delta/delta0)
@@ -762,21 +764,24 @@ def getXYFromCatalogP(catalog,w,delta0=0.01,\
             else:
                 argHinet.append([c,0,delta,delta0,dtP,dtS,f,\
             order,oIndexTmp,dIndex0,maxPS,0,resL])
-        with Pool(15) as p:
+        with Pool(10) as p:
             p.map(doOne,argHinet)
         for arg in argSTEAD:
             doOne(arg)
+        random.shuffle(resL)
+        modeL=[]
         for res in resL:
-            tmpX,tmpY,wType = res
+            tmpX,tmpY,wType,mode = res
             if wType!='phase_no' and tmpX.std(axis=0).min()>0:
                 x[count,:,:,:]=tmpX
                 y[count,:,:,:]=tmpY
+                modeL.append(mode)
                 count+=1
             if count%990==0:
                 print(count)
     x=x[:count]
     y=y[:count,:,:,channelIndex]
-    return x,y
+    return x,y,modeL
 
 def getXYFromCatalog(catalog,w,delta0=0.01,\
     delta=0.02,dtP=0.1,dtS=0.2,f=[2,20],\
@@ -789,7 +794,7 @@ def getXYFromCatalog(catalog,w,delta0=0.01,\
     count=0
     for c in catalog:
         oIndexTmp=oIndex
-        if np.random.rand()<0.3:
+        if np.random.rand()<0.1:
             oIndexTmp=10
         tmpX,tmpY,wType=c.getXY(c,w,delta=delta,\
             delta0=delta0,dtP=dtP,dtS=dtS,f=f,\
@@ -839,7 +844,7 @@ def getXYFromHinet(filePL,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     if sac.pTime>0 and sac.sTime>0 and sac.data.shape[0]>200:
         if sac.sTime-sac.pTime<maxPS:
             pSample=extend+int((sac.pTime-sac.bTime)/sac.delta)
-            sSample=extend+int((sac.pTime-sac.bTime)/sac.delta)
+            sSample=extend+int((sac.sTime-sac.bTime)/sac.delta)
             X=extendX(sac.data,extend,d)
             wType='phase_ok'
         else:
@@ -855,6 +860,8 @@ def getXYFromHinet(filePL,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     Y[:,2]=1-Y[:,0]-Y[:,1]
     if oIndex==None:
         i0=int((np.random.rand(1))*(l-dIndex-200)+100)
+        if  np.random.rand()<0.5:
+            i0=extend+int(np.random.rand()*(sac.pTime-sac.bTime)/sac.delta)
     else:
         i0=oIndex
     if i0<0 or i0+dIndex>= l or i0>=l:

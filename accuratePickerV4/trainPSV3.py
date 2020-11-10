@@ -20,9 +20,9 @@ import random
 os.environ["MKL_NUM_THREADS"] = "32"
 fileDir='/home/jiangyr/accuratePickerV3/testNew/'
 isBadPlus=1
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.5
+config.gpu_options.per_process_gpu_memory_fraction = 1
 config.gpu_options.allow_growth = True
 session =tf.Session(config=config)
 K.set_session(session) 
@@ -105,7 +105,7 @@ def validStd(tmpY,tmpY0,threshold=100, minY=0.2,num=2000):
         validLNew=np.where(pTmp>minY)[0]
         validL=validL[validLNew]
         if len(di)==0:
-            return 0, 0, 0
+            return 0, 0, 0, 0
     if num==1600:
         validL=np.where((maxYIndex-200)*(maxYIndex-1400)<0)[0]
         tmpY=tmpY[validL]
@@ -119,7 +119,7 @@ def validStd(tmpY,tmpY0,threshold=100, minY=0.2,num=2000):
         validLNew=np.where(pTmp>minY)[0]
         validL=validL[validLNew]
         if len(di)==0:
-            return 0, 0, 0
+            return 0, 0, 0,0
     if num==1200:
         validL=np.where((maxYIndex-200)*(maxYIndex-1000)<0)[0]
         tmpY=tmpY[validL]
@@ -133,7 +133,7 @@ def validStd(tmpY,tmpY0,threshold=100, minY=0.2,num=2000):
         validLNew=np.where(pTmp>minY)[0]
         validL=validL[validLNew]
         if len(di)==0:
-            return 0, 0, 0
+            return 0, 0, 0,0
     if num==1500:
         validL=np.where((maxYIndex-250)*(maxYIndex-1250)<0)[0]
         tmpY=tmpY[validL]
@@ -147,9 +147,9 @@ def validStd(tmpY,tmpY0,threshold=100, minY=0.2,num=2000):
         validLNew=np.where(pTmp>minY)[0]
         validL=validL[validLNew]
         if len(di)==0:
-            return 0, 0, 0
+            return 0, 0, 0,0
 
-    return np.size(validL)/np.size(di),di[validL].mean(),di[validL].std()
+    return np.size(validL)/np.size(di),di[validL].mean(),di[validL].std(),len(di)
 
 
 
@@ -193,17 +193,15 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     logger.info('vaild num: %d   testNum: %d  trainNum: %d inN: %d'\
         %(len(catalogValid),len(catalogTest),len(catalogTrain),inN))
 
-    xValid,yValid=sacTool.getXYFromCatalogP(catalogValid,w,dIndex=dIndex,\
+    xValid,yValid,modeValid=sacTool.getXYFromCatalogP(catalogValid,w,dIndex=dIndex,\
         channelIndex=channelIndex)
     xValid=processX(xValid,isNoise=False,num=dIndex)
 
-    xTest,yTest=sacTool.getXYFromCatalogP(catalogTest,w,dIndex=dIndex,\
-        channelIndex=channelIndex)
-    xTest=processX(xTest,isNoise=False,num=dIndex)
+    
     
     for i in range(5000):
         catalogIn=random.sample(catalogTrain,inN)
-        xTrain,yTrain=sacTool.getXYFromCatalogP(catalogIn,w,dIndex=dIndex,\
+        xTrain,yTrain,modeTrain=sacTool.getXYFromCatalogP(catalogIn,w,dIndex=dIndex,\
         channelIndex=channelIndex)
         xTrain=processX(xTrain,isNoise=False,num=dIndex)
         ne =3
@@ -215,7 +213,8 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
         bs = 100
         tmpI=i%xTrain.shape[0]
         showXY(xTrain[tmpI],yTrain[tmpI],np.arange(min(yTrain.shape[-1],2)))
-        plt.savefig('fig/train/%d_train.jpg'%i,dpi=300)
+        plt.title(modeTrain[tmpI])
+        plt.savefig('fig/train_%s/%d_train.jpg'%(phase,i),dpi=300)
         plt.close()
         model.fit(xTrain,yTrain,batchSize=bs)
         logger.info('loop %d runSample/allSample: %.7f'%(i,inN*(i+1)/len(catalogTrain)))
@@ -226,19 +225,21 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
             print(tmpY.shape)
             tmpI=i%xValid.shape[0]
             showXY(xValid[tmpI],tmpY[tmpI],np.arange(min(yTrain.shape[-1],2)))
-            plt.savefig('fig/train/out_%d_train.jpg'%i,dpi=300)
+            plt.title(modeValid[tmpI])
+            plt.savefig('fig/train_%s/out_%d_train.jpg'%(phase,i),dpi=300)
             plt.close()
             for threshold in thresholds:
                 for minY in minYL:
                     for cI in channelIndex:
                         if cI==2:
                             continue
-                        p,m,s=validStd(tmpY[:,:,:,cI],yValid[:,:,:,cI], threshold=\
+                        p,m,s,num=validStd(tmpY[:,:,:,channelIndex.tolist().index(cI)],\
+                            yValid[:,:,:,channelIndex.tolist().index(cI)], threshold=\
                             threshold, minY=minY,num=dIndex)
                         logger.info('STEAD channel: %d % 3d : minY:%.2f p:\
-                            %.5f m:%.5f s:%.5f'%(cI,threshold,minY,p,m,s))
+                            %.5f m:%.5f s:%.5f num: %7d'%(cI,threshold,minY,p,m,s,num))
 
-            p,absMean,rms=validStd(tmpY[:,:,:,0],yValid[:,:,:,0]\
+            p,absMean,rms,num=validStd(tmpY[:,:,:,0],yValid[:,:,:,0]\
                 ,threshold=20, minY=0.5,num=dIndex)
             rms=model.evaluate(x=xValid, y=yValid)
             logger.info('vaild loss: %.9f'%rms)
@@ -259,24 +260,29 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     model.save(modelFile)
     minYL=[0.1,0.5,0.9]
     thresholds = [50, 25, 5]
+    xTest,yTest,modeTest=sacTool.getXYFromCatalogP(catalogTest,w,dIndex=dIndex,\
+        channelIndex=channelIndex)
+    xTest=processX(xTest,isNoise=False,num=dIndex)
     outY = model.predict(xTest)
     for threshold in thresholds:
         for minY in minYL:
             for cI in channelIndex:
                 if cI==2:
                     continue
-                p,m,s=validStd(outY,yTest[:,:,:,cI],\
+                p,m,s,num=validStd(outY[:,:,:,channelIndex.tolist().index(cI)],\
+                    yTest[:,:,:,channelIndex.tolist().index(cI)],\
                  threshold=threshold, minY=minY,num=dIndex)
                 logger.info('test STEAD channelP:%d  % 3d : minY:%.2f \
-                    p:%.5f m:%.5f s:%.5f'%(cI,threshold,minY,p,m,s))
+                    p:%.5f m:%.5f s:%.5f num:%7d'%(cI,threshold,minY,p,m,s,num))
                 
     sio.savemat(resFile, {'out'+phase+'y': outY, 'out'+phase+'x': xTest, \
             phase+'y'+'0': yTest})
 
 def showXY(x,y,channelL):
-    plt.plot(x[:,:,2]+1,linewidth=0.3)
+    for i in range(3):
+        plt.plot(x[:,:,i]/3+1+i*3,'k',linewidth=0.3)
     for i in channelL:
-        plt.plot(y[:,:,i]-i,linewidth=0.3)
+        plt.plot(y[:,:,i]-i-1,linewidth=0.3)
 
 
 if __name__ == '__main__':
