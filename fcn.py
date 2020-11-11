@@ -539,9 +539,9 @@ class model(Model):
         self.compile(loss=config.lossFunc, optimizer='Nadam')
         return model
     def predict(self,x):
-        print('inx')
+        #print('inx')
         x = self.inx(x)
-        print('inx done')
+        #print('inx done')
         return super().predict(x).astype(np.float16)
     def fit(self,x,y,batchSize=None):
         x=self.inx(x)

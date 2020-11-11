@@ -108,7 +108,7 @@ class filePath:
         if staName in self.himaDir:
             staDirL = self.himaDir[staName]
         if nameMode =='YNSC':
-            staL = ['/net/CEA/CEA?/net_??/']
+            staDirL = ['/net/CEA/CEA?/net_??/']
         return staDirL
     def getSensorDas(self,net,sta,nameMode=''):
         if nameMode == '':
