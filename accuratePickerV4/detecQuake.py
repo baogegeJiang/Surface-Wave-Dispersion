@@ -20,9 +20,17 @@ else:
     pass
 from distaz import DistAz
 from numba import jit
-maxA=2e2
+maxA=2e19
 os.environ["MKL_NUM_THREADS"] = "10"
+@jit
+def isZeros(a):
+    new = a.reshape([-1,10,a.shape[-1]])
+    if (new.std(axis=(1))==0).sum()>5:
+        return True
+    return False
 
+
+indexL0=range(275, 1500)
 @jit
 def predictLongData(model, x, N=2000, indexL=range(750, 1250)):
     if len(x) == 0:
@@ -34,6 +42,7 @@ def predictLongData(model, x, N=2000, indexL=range(750, 1250)):
     perLoop = int(1000)
     inMat = np.zeros((perLoop, 2000, 1, 3))
     #print(len(x))
+    zeroCount=0
     for loop0 in range(0, int(loopN), int(perLoop)):
         loop1 = min(loop0+perLoop, loopN)
         for loop in range(loop0, loop1):
@@ -45,12 +54,20 @@ def predictLongData(model, x, N=2000, indexL=range(750, 1250)):
         outMat = (model.predict(inMat)[:,:,:,:1]).reshape([-1, 2000])
         for loop in range(loop0, loop1):
             i = loop*perN
+            if isZeros(inMat[loop-loop0, :, :, :]):
+                zeroCount+=1
+                continue
             sIndex = min(max(0, i), N-2000)
             if sIndex > 0:
-                Y[indexL[0]+sIndex: indexL[-1]+1+sIndex] = \
-                outMat[loop-loop0, indexL].reshape([-1])
+                Y[indexL0[0]+sIndex: indexL0[-1]+1+sIndex] = \
+                np.append(Y[indexL0[0]+sIndex: indexL0[-1]+1+sIndex],\
+                    outMat[loop-loop0, indexL0].reshape([-1])\
+                    ).reshape([2,-1]).max(axis=0)
+    if zeroCount>0:
+        print('zeros: %d'%zeroCount)
+                
     return Y
-
+'''
 @jit
 def processX(X, rmean=True, normlize=True, reshape=True):
     if reshape:
@@ -60,6 +77,20 @@ def processX(X, rmean=True, normlize=True, reshape=True):
     if normlize:
         X = X/(X.std(axis=(1, 2, 3)).reshape([-1, 1, 1, 1]))
     return X
+'''
+@jit
+def processX(X, rmean=True, normlize=False, reshape=True,isNoise=False,num=2000):
+    if reshape:
+        X = X.reshape(-1, num, 1, 3)
+    #print(X.shape)
+    if rmean:
+        X-= X.mean(axis=1,keepdims=True)
+    if normlize:
+        X /=(X.std(axis=(1, 2, 3),keepdims=True))
+    if isNoise:
+        X+=(np.random.rand(X.shape[0],num,1,3)-0.5)*np.random.rand(X.shape[0],1,1,3)*X.max(axis=(1,2,3),keepdims=True)*0.15*(np.random.rand(X.shape[0],1,1,1)<0.1)
+    return X
+
 
 
 def originFileName(net, station, comp, YmdHMSJ, dirL=['data/']):
@@ -80,8 +111,8 @@ class sta(object):
      taupM=tool.quickTaupModel(),isPre=True,delta0=0.02,R=[-91,91,\
     -181,181],maxD=80,bTime=None,eTime=None):
         self.net = station['net']
-        self.loc = station['loc']
-        self.station = station['station']
+        self.loc = station.loc()
+        self.station = station['sta']
         self.sta = station
         self.day = day
         self.comp = comp
@@ -93,11 +124,12 @@ class sta(object):
             self.data = getDataByFileName(station.getFileNames(self.day), freq=freq,delta0=delta0,\
                 maxA=maxA,bTime=bTime,eTime=eTime)
         #print(len(sta.data.data))
+        print(self.station,self.data.bTime,self.data.eTime,self.data.data.std())
         self.timeL = list()
         self.vL = list()
         self.mode = mode
         if isPre==True:
-            indexLL = [range(750, 1250), range(1000, 1500)]
+            indexLL = [range(275, 775), range(275, 775)]
             if mode=='norm':
                 minValueL=[0.5,0.5]
             if mode=='high':
@@ -113,6 +145,7 @@ class sta(object):
                 tmpL = getDetec(predictLongData(modelL[i], self.data.data,\
                  indexL=indexLL[i]), minValue=minValueL[i], minDelta =\
                   minDeltaL[i])
+                print('find',len(tmpL[0]))
                 self.timeL.append(tmpL[0])
                 self.vL.append(tmpL[1])
             self.pairD = self.getPSPair(maxD=maxD)
@@ -400,15 +433,15 @@ def getStaTimeL(staInfos, aMat,taupM=tool.quickTaupModel()):
     #staTimeML=manager.list()
     staTimeML=list()
     for staInfo in staInfos:
-        loc=staInfos.loc()[:2]
+        loc=staInfo.loc()[:2]
         staTimeML.append(staTimeMat(loc, aMat, taupM=taupM))
     return staTimeML
 
-def getSta(staL,i, nt, st, date, modelL, staTimeM, loc, \
+def getSta(staL,i, staInfo, date, modelL, staTimeM, loc, \
         freq,getFileName,taupM, mode,isPre=True,R=[-90,90,\
     -180,180],comp=['BHE','BHN','BHZ'],maxD=80,delta0=0.02,\
     bTime=None,eTime=None):
-    staL[i] = sta(nt, st, date, modelL, staTimeM, loc, \
+    staL[i] = sta(staInfo, date, modelL, staTimeM, loc, \
             freq=freq, getFileName=getFileName, taupM=taupM, \
             mode=mode,isPre=isPre,R=R,comp=comp,maxD=maxD,\
             delta0=delta0,bTime=bTime,eTime=eTime)
@@ -433,7 +466,7 @@ def getStaL(staInfos, aMat=[], staTimeML=[], modelL=[],\
         else:
             staTimeM=None
         print('process on sta: ',i)
-        getSta(staL, i, nt, st, date, modelL, staTimeM, loc, \
+        getSta(staL, i, staInfo, date, modelL, staTimeM, loc, \
             f, getFileName, taupM, mode,isPre=isPre,R=R,\
             comp=comp,maxD=maxD,delta0=delta0,bTime=bTime,\
             eTime=eTime)

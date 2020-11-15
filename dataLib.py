@@ -87,6 +87,10 @@ class filePath:
             pattern='%s/%s/%s/%s/%s.D/%s.%s.00.%s.D.%s.%s'\
             %(staDir,time.strftime('%Y'),net,sta,comp,net,sta,comp,\
                 time.strftime('%Y'),time.strftime('%j'))
+        elif nameMode =='XU':
+            sta = sta.split('_')[0]
+            pattern='%s/%s/%s*%s.sac'\
+            %(staDir,sta,time.strftime('%Y/%Y%m%d/%Y%m%d'),comp)
 
         #print('##',pattern)
         return glob(pattern)
@@ -109,6 +113,8 @@ class filePath:
             staDirL = self.himaDir[staName]
         if nameMode =='YNSC':
             staDirL = ['/net/CEA/CEA?/net_??/']
+        if nameMode =='XU':
+            staDirL = ['/HOME/jiangyr/YNSCMOVE/']
         return staDirL
     def getSensorDas(self,net,sta,nameMode=''):
         if nameMode == '':

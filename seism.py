@@ -14,7 +14,7 @@ fileP = filePath()
 def tolist(s,d='/'):
     return s.split(d)
 nickStrL='1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM'
-strType={'S':str,'f':float,'F':float,'i':int, 'l':tolist,'b':bool}
+strType={'S':str,'f':float,'F':float,'i':int, 'l':tolist,'b':bool,'u':UTCDateTime}
 NoneType = type(None)
 
 
@@ -76,6 +76,7 @@ class Dist:
             tmp[i] = tmp[i].strip()
             index = self.index(self.keysIn[i])
             if tmp[i]!='-99999':
+                #print(tmp[i],strType[self.keysType[index][0]])
                 #print(self.keysIn[i],index,self.keysType[index][0])
                 self[self.keysIn[i]] = strType[self.keysType[index][0]](tmp[i])
             else:
@@ -160,9 +161,11 @@ class Station(Dist):
     def defaultSet(self):
         super().defaultSet()
         self.keysIn   = 'net sta compBase lo la erroLo erroLa dep erroDep '.split()
-        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName comp index nameFunc sensorName dasName sensorNum nameMode netSta doFilt oRemove baseSacName'.split()
-        self.keysType ='S S S f f f f f f S l f F S S S S S b b S'.split()
-        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     None,None, fileP,'','','','','',True,False,'net.sta.info.compBase']
+        self.keys     = 'net sta compBase lo la erroLo erroLa dep erroDep nickName \
+        comp index nameFunc sensorName dasName sensorNum nameMode netSta doFilt oRemove baseSacName starttime endtime'.split()
+        self.keysType ='S S S f f f f f f S l f F S S S S S b b S u u'.split()
+        self.keys0 =    [None,None,'BH',None,None,0    ,   0, 0   ,0,  None,     \
+        None,None, fileP,'','','','','',True,False,'net.sta.info.compBase',UTCDateTime(1970,1,1),UTCDateTime(2099,1,1)]
         self.keysName = ['net','sta']
     def getNickName(self, index):
         nickName = ''
@@ -175,6 +178,8 @@ class Station(Dist):
     def getFileNames(self, time0,time1=None):
         if isinstance(time1, NoneType):
             time1 = time0+86399
+        if time0>self['endtime'] or time1<self['starttime']:
+            return [[],[],[]]
         return [self['nameFunc'](self['net'],self['sta'], \
             comp, time0,time1,self['nameMode']) for comp in self['comp']]
     def __setitem__(self,key,value):
@@ -286,6 +291,7 @@ class StationList(list):
             inD['keysIn'] = keys
         index=0
         for line in lines:
+            #print(line)
             inD['line'] = line
             inD['index']= index
             self.append(Station(**inD))
@@ -969,7 +975,7 @@ def mergeSacByName(sacFileNames, **kwargs):
             else:
                 pass
         try:
-            sacM=tmpSacL.merge(fill_value=0)[0]
+            sacM=tmpSacL.merge(fill_value=0,method=1,interpolation_samples=0)[0]
             std=sacM.std()
             if std>para['maxA']:
                 print('#####too many noise std : %f#####'%std)

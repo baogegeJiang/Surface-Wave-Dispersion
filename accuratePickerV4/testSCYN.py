@@ -1,41 +1,47 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import detecQuake
-import trainPSV3 as trainPS
+
 import sacTool
 import sys
 sys.path.append("..")
 from seism import StationList
+import fcn as trainPS
 from imp import reload
 from obspy import UTCDateTime
 import tool
 from locate import locator
 import names
-detecQuake.maxA=1e4
+detecQuake.maxA=1e15#这个是否有道理
 
-
-workDir='/home/jiangyr/detecQuake/'# workDir: the dir to save the results
-staLstFile='stations/SCYN_withComp_ac'#station list file
-bSec=UTCDateTime(2014,1,1).timestamp#begain date
-eSec=UTCDateTime(2014,2,1).timestamp# end date
-laL=[23,33]#area: [min latitude, max latitude]
-loL=[96,107]#area: [min longitude, max longitude]
+#2019-06-17
+workDir='/HOME/jiangyr/detecQuake/'# workDir: the dir to save the results
+staLstFileL=['../stations/XU_sel.sta','../stations/SCYN_withComp_ac',]#station list file
+bSec=UTCDateTime(2019,6,15).timestamp#begain date
+eSec=UTCDateTime(2019,6,30).timestamp# end date
+laL=[20,34]#area: [min latitude, max latitude]
+loL=[93,110]#area: [min longitude, max longitude]
 laN=35 #subareas in latitude
 loN=35 #subareas in longitude
-maxD=35#max ts-tp
-f=[2,15]
+maxD=40#max ts-tp
+f=[0.5,20]
 
+if not os.path.exists(workDir+'output/'):
+    os.makedirs(workDir+'output/')
+if not os.path.exists(workDir+'/phaseDir/'):
+    os.makedirs(workDir+'/phaseDir/')
 #####no need to change########
 taupM=tool.quickTaupModel(modelFile='include/iaspTaupMat')
-modelL = [trainPS.loadModel('model/modelP_320000_0-2-15-with','norm','p'),\
-trainPS.loadModel('model/modelS_320000_0-2-15-with','norm','s')]
-staInfos=StationList(staLstFile)
+modelL = [trainPS.genModel0('norm','p')[0],trainPS.genModel0('norm','s')[0]]
+modelL[0].load_weights('model/norm_p_2000000_400000')
+modelL[1].load_weights('model/norm_s_2000000_400000')
+staInfos=StationList(staLstFileL[0])+StationList(staLstFileL[1])
 aMat=sacTool.areaMat(laL,loL,laN,loN)
 staTimeML= detecQuake.getStaTimeL(staInfos, aMat, taupM=taupM)
 quakeLs=list()
 #############################
-v_i='SCYN_20200902V1'
-p_i='SCYN_20200902V1'
+v_i='SCYN_20201112_CN7'
+p_i='SCYN_20201112_CN7'
 for date in range(int(bSec),int(eSec), 86400):
     dayNum=int(date/86400)
     dayDir=workDir+('output/outputV%s/'%v_i)+str(dayNum)

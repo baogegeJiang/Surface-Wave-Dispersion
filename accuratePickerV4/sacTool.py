@@ -43,7 +43,7 @@ class data:
 
 class Data(data):
     def __init__(self, data, bTime=-999, eTime=-999, delta=0, freq=[-1, -1],\
-            pTime=-999,sTime=-999):
+            pTime=-999,sTime=-999,dis=110*180):
         self.data = data
         self.convert2Float32()
         self.bTime = bTime
@@ -52,6 +52,7 @@ class Data(data):
         self.freq = freq
         self.pTime = pTime
         self.sTime= sTime
+        self.dis  = dis
     def getTimeL(self):
         return np.arange(self.bTime.timestamp, self.eTime.timestamp, \
             self.delta)
@@ -111,7 +112,7 @@ class sac(trace.Trace, data):
             return self.data[:]
 
         
-def sac2data(sacs, delta0=0.02,bTime0=None,eTime0=None):
+def sac2data(sacs, delta0=0.02,bTime0=None,eTime0=None,oTime=-999):
     bTime, eTime = getTimeLim(sacs)
     if eTime0!=None:
         eTime=min(eTime0,eTime)
@@ -121,15 +122,21 @@ def sac2data(sacs, delta0=0.02,bTime0=None,eTime0=None):
     data = np.zeros((timeL.shape[0], len(sacs)))
     pTime=-999
     sTime=-999
+    dis  = 180*110
     if 'sac' in sacs[0].stats:
         if 't0' in sacs[0].stats['sac']:
             pTime=bTime+sacs[0].stats['sac']['t0']-sacs[0].stats['sac']['b']
+            if oTime>0:
+                dis = (pTime.timestamp-oTime)*6
         if 't1' in sacs[0].stats['sac']:
             sTime=bTime+sacs[0].stats['sac']['t1']-sacs[0].stats['sac']['b']
+            if dis == 180*110:
+                if oTime>0:
+                    dis=(sTime.timestamp-oTime)*6/1.6
 
     for i in range(len(sacs)):
         data[:, i] = sac(sacs[i]).getDataByTimeLQuick(timeL)
-    return data, bTime, eTime, delta0, pTime, sTime
+    return data, bTime, eTime, delta0, pTime, sTime, dis
 
 
 def mergeSacByName(sacFileNames, delta0=0.02, freq=[-1, -1], \
@@ -168,7 +175,7 @@ def mergeSacByName(sacFileNames, delta0=0.02, freq=[-1, -1], \
             else:
                 pass
         try:
-            sacM=tmpSacL.merge(fill_value=0)[0]
+            sacM=tmpSacL.merge(method=1,fill_value=0,interpolation_samples=0)[0]
             std=sacM.std()
             if std>maxA:
                 print('#####too many noise std : %f#####'%std)
@@ -200,8 +207,10 @@ def checkSacFile(sacFileNamesL):
 
 def getDataByFileName(sacFileNamesL, delta0=0.02, freq=[-1, -1], \
     filterName='bandpass', corners=2, zerophase=True,maxA=1e5,\
-    bTime=None,eTime=None):
+    bTime=None,eTime=None,isPrint=False,mode='norm'):
     if not checkSacFile(sacFileNamesL):
+        if isPrint:
+            print('not find')
         return Data(np.zeros(0), -999, -999, 0, [-1 -1],-999,-999)
     sacs = stream.Stream()
     #time0=time.time()
@@ -214,10 +223,19 @@ def getDataByFileName(sacFileNamesL, delta0=0.02, freq=[-1, -1], \
         else:
             sacs.append(tmp)
     time1=time.time()
-    dataL=sac2data(sacs,delta0=delta0,bTime0=bTime,eTime0=eTime)
+    oTime=-999
+    if mode == 'hinet':
+        eventDir = os.path.dirname(sacFileNamesL[0][0])
+        eventFile=glob(eventDir+'/D*txt')
+        if len(eventFile)>0:
+            with open(eventFile[0],encoding='latin1') as f:
+                line = f.readline()
+                timeStr = line.split()[-2]+' '+line.split()[-1]
+                oTime   =UTCDateTime(timeStr).timestamp
+    dataL=sac2data(sacs,delta0=delta0,bTime0=bTime,eTime0=eTime,oTime=oTime)
     time2=time.time()
     #print('read',time1-time0,'dec',time2-time1)
-    return Data(dataL[0], dataL[1], dataL[2], dataL[3], freq,dataL[4],dataL[5])
+    return Data(dataL[0], dataL[1], dataL[2], dataL[3], freq,dataL[4],dataL[5],dataL[6])
 
 class subarea:
     def __init__(self, minLa, minLo, maxLa, maxLo, midLa, midLo):
@@ -653,7 +671,7 @@ def extendX(X,extend,d):
 
 def getXYFromSTEAD(c,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     f=[2,15],order=2,oIndex=None,dIndex=2000,extend=2000,d0=400\
-    ,maxPS=100):
+    ,maxPS=100,phase='ps'):
     if c[-2]=='earthquake_local':
         x=w['earthquake']['local'][c[-1]]
     elif c[-2]=='noise':
@@ -673,17 +691,25 @@ def getXYFromSTEAD(c,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     sSample=-100000
     wType='noise'
     decimateN=int(delta/delta0)
+    if np.random.rand()<0.001:
+        print(phase)
     if x.attrs['trace_category']!='noise':
         if x.attrs['p_status']=='manual' and \
             x.attrs['s_status']=='manual':
-            if x.attrs['s_arrival_sample']-\
-                x.attrs['p_arrival_sample']<maxPS/delta0:
-                pSample=int((x.attrs['p_arrival_sample']+extend)/decimateN)
-                sSample=int((x.attrs['s_arrival_sample']+extend)/decimateN)
-                if pSample>0 and sSample>0:
-                    wType='phase_ok'
-                else:
-                    wType='phase_no'
+            if (x.attrs['s_arrival_sample']<=0 or x.attrs['p_arrival_sample']<=0 or\
+             x.attrs['p_arrival_sample']>X.shape[0]-extend or \
+             x.attrs['s_arrival_sample']>X.shape[0]-extend )\
+            and phase=='ps':
+                return [],[],'phase_no'
+            if x.attrs['source_distance_km']>6*maxPS/0.7:
+                return [],[],'phase_no'
+            if phase =='p' and (x.attrs['p_arrival_sample']<=0 or x.attrs['p_arrival_sample']>X.shape[0]-extend):
+                return [],[],'phase_no'
+            if phase =='s' and (x.attrs['s_arrival_sample']<=0 or x.attrs['s_arrival_sample']>X.shape[0]-extend):
+                return [],[],'phase_no'
+            pSample=int((x.attrs['p_arrival_sample']+extend)/decimateN)
+            sSample=int((x.attrs['s_arrival_sample']+extend)/decimateN)    
+            wType='phase_ok'
         else:
             wType='phase_no'
             #print(x.attrs['p_status'] and x.attrs['s_status'])
@@ -696,9 +722,12 @@ def getXYFromSTEAD(c,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     Y[:,2]=1-Y[:,0]-Y[:,1]
     if oIndex==None:
         i0=int((np.random.rand(1))*(l-dIndex-200)+100)
-        if np.random.rand()<0.5 and pSample>0:
-            i0 = int(extend/decimateN+min(l-dIndex-100,np.random.rand()*(pSample-extend/decimateN)))
-            i0 = min(l-dIndex-100,i0)
+        if np.random.rand()<0.6 :
+            if pSample>0:
+                i0 = int(extend/decimateN+np.random.rand()**1.5*(pSample-2/delta-extend/decimateN))
+            elif sSample>0:
+                i0 = int(extend/decimateN+np.random.rand()*(sSample-2/delta-extend/decimateN))
+        i0 = max(0,min(l-dIndex-100,i0))
     else:
         i0=oIndex
     X=X[i0:i0+dIndex].reshape([dIndex,1,3])
@@ -730,11 +759,11 @@ def getCatalogFromFile(filename,mod='STEAD'):
                     ,getXYFromHinet,mode=mod))
         return catalog,[]
 def doOne(l):
-    c,w,delta,delta0,dtP,dtS,f,order,oIndex,dIndex,maxPS,extend,resL=l
+    c,w,delta,delta0,dtP,dtS,f,order,oIndex,dIndex,maxPS,extend,phase,resL=l
     tmpX,tmpY,wType=c.getXY(c,w,delta=delta,\
             delta0=delta0,dtP=dtP,dtS=dtS,f=f,\
             order=order,oIndex=oIndex,dIndex=dIndex,\
-            maxPS=maxPS,extend=0)
+            maxPS=maxPS,extend=0,phase=phase)
     if len(tmpX)==0 or len(tmpY)==0:
         return
     if wType!='phase_no' and tmpX.std(axis=0).min()>0:
@@ -743,7 +772,7 @@ def doOne(l):
 def getXYFromCatalogP(catalog,w,delta0=0.01,\
     delta=0.02,dtP=0.1,dtS=0.2,f=[0.5,20],\
     order=2,oIndex=None,dIndex=2000,channelIndex=0,\
-    maxPS=20*0.7):
+    maxPS=21,phase='ps'):
     decimateN=1#int(delta/delta0)
     dIndex0=dIndex*decimateN
     x=np.zeros([len(catalog),dIndex0,1,3])
@@ -755,15 +784,12 @@ def getXYFromCatalogP(catalog,w,delta0=0.01,\
         argHinet = []
         for c in catalog:
             oIndexTmp=oIndex
-            if np.random.rand()<0.3:
-                oIndexTmp=10
-            
             if c.mode=='STEAD':
                 argSTEAD.append([c,w,delta,delta0,dtP,dtS,f,\
-                order,oIndexTmp,dIndex0,maxPS,0,resL])
+                order,oIndexTmp,dIndex0,maxPS,0,phase,resL])
             else:
                 argHinet.append([c,0,delta,delta0,dtP,dtS,f,\
-            order,oIndexTmp,dIndex0,maxPS,0,resL])
+            order,oIndexTmp,dIndex0,maxPS,0,phase,resL])
         with Pool(10) as p:
             p.map(doOne,argHinet)
         for arg in argSTEAD:
@@ -794,8 +820,6 @@ def getXYFromCatalog(catalog,w,delta0=0.01,\
     count=0
     for c in catalog:
         oIndexTmp=oIndex
-        if np.random.rand()<0.1:
-            oIndexTmp=10
         tmpX,tmpY,wType=c.getXY(c,w,delta=delta,\
             delta0=delta0,dtP=dtP,dtS=dtS,f=f,\
             order=order,oIndex=oIndexTmp,dIndex=dIndex0,\
@@ -829,26 +853,35 @@ def writeHinetLst(fileName='phaseDir/hinetFileLst',\
 
 def getXYFromHinet(filePL,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     f=[2,15],order=2,oIndex=None,dIndex=2000,extend=2000,d0=400\
-    ,maxPS=100):
+    ,maxPS=100,phase='ps'):
     fileP=filePL[0]
     strL='ENU'
     sacL=[[fileP+'%s.SAC'%strL[i]] for i in range(3)]
     sac=getDataByFileName(sacL,freq=f,corners=order,delta0=delta,\
-        maxA=np.inf)
+        maxA=np.inf,isPrint=True,mode='hinet')
     d=int(1.5*(np.random.rand(1))*d0/2+25)*2
     #d=int(np.random.rand*d+50)
     #print(sac.data)
     pSample=-100000
     sSample=-100000
     wType='phase_no'
-    if sac.pTime>0 and sac.sTime>0 and sac.data.shape[0]>200:
-        if sac.sTime-sac.pTime<maxPS:
-            pSample=extend+int((sac.pTime-sac.bTime)/sac.delta)
-            sSample=extend+int((sac.sTime-sac.bTime)/sac.delta)
-            X=extendX(sac.data,extend,d)
-            wType='phase_ok'
-        else:
+    if np.random.rand()<0.001:
+        print(phase)
+    if sac.data.shape[0]>200:
+        if sac.dis>(maxPS/0.7*6):
+            if np.random.rand()<0.1:
+                print('dis:',sac.dis)
             return [],[],wType
+        if phase =='ps' and (sac.sTime<=0 or sac.pTime<=0):
+            return [],[],wType
+        pSample=extend+int((sac.pTime-sac.bTime)/sac.delta)
+        sSample=extend+int((sac.sTime-sac.bTime)/sac.delta)
+        if pSample<=0 and phase =='p':
+            return [],[],wType
+        if sSample<=0 and phase =='s':
+            return [],[],wType
+        X=extendX(sac.data,extend,d)
+        wType='phase_ok'
     else:
         return [],[],wType
     Y=X*0
@@ -860,8 +893,12 @@ def getXYFromHinet(filePL,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     Y[:,2]=1-Y[:,0]-Y[:,1]
     if oIndex==None:
         i0=int((np.random.rand(1))*(l-dIndex-200)+100)
-        if  np.random.rand()<0.5:
-            i0=extend+int(np.random.rand()*(sac.pTime-sac.bTime)/sac.delta)
+        if  np.random.rand()<0.6:
+            if pSample>0:
+                i0=extend+int(np.random.rand()**1.5*(sac.pTime-2-sac.bTime)/sac.delta)
+            elif sSample>0:
+                i0=extend+int(np.random.rand()**1.5*(sac.sTime-2-sac.bTime)/sac.delta)
+        i0=max(0,min(l-dIndex-100,i0))
     else:
         i0=oIndex
     if i0<0 or i0+dIndex>= l or i0>=l:

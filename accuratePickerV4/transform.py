@@ -1,6 +1,9 @@
 #coding: UTF-8
 import os
-from obspy import read
+from obspy import read,UTCDateTime
+from matplotlib import pyplot as plt
+import numpy as np
+from multiprocessing import Process, Manager,Pool
 '''
 'A01(鲁纳菁)'   'A06(云坪村)'   'B05(巧家营)'  'C05(竹寿镇)'   J03河玉村      'J08(围墙村)'
 'A02（以则村)'   B01（紫牛村）   C01杉木村     'C06(稻谷乡)'   J04莲塘村
@@ -101,13 +104,190 @@ def do(tmpDir=dataDir,f=None):
             print(file+' done')
 
 
-do()
+#do()
+'/NET/admin/YNSC/2/2013年数据（201302--201402）/测震（201306-201309）/J08(围墙村)/20130721/20130721T2100_7091Z2.gcf \
+2013-07-21T21:00:01.000000Z /HOME/jiangyr/YNSC_SAC//XU.7091/2013/20130721/20130721210001.HHZ.sac\
+ XU 7091 HHZ%'
+def getDirStaLst(file,staD):
+    with open(file,'r') as f:
+        for line in f.readlines():
+            if 'wrong' in line:
+                continue
+            tmp = line.split()
+            fileInfo = tmp[0]
+            sta = tmp[-2]
+            if sta not in staD:
+                staD[sta]={}
+            dirL = fileInfo.split('/')
+            staInfo = ''
+            for DIR in dirL[5:9]:
+                if  '201' in DIR or '202' in DIR:
+                    continue
+                staInfo+='_'+DIR
+            distFile = tmp[-4]
+            time=int(UTCDateTime(distFile.split('/')[-1].split('.')[0][:8]).timestamp/86400)
+            if len(staInfo)==0:
+                print(fileInfo)
+            staInfo += file
+            if 'repeat' in line:
+                staInfo += '_repeat'
+            if staInfo not in staD[sta]:
+                staD[sta][staInfo] = []
+                print(sta,staInfo)
+            if time not in staD[sta][staInfo]:
+                staD[sta][staInfo].append(time)
+'''
+staD = {}
+timeLim = [UTCDateTime('20120101').timestamp/86400,UTCDateTime('20201201').timestamp/86400]
+for file in glob('test*log*'):
+    print(file)
+    getDirStaLst(file,staD)
+plotDir = 'YNSC_data/'
+if not os.path.exists(plotDir):
+    os.makedirs(plotDir)
+with open('staTransDirL','w+') as f:
+    for sta in staD:
+        f.write(sta+'\n')
+        plt.figure(figsize=[20,4])
+        ax =plt.axes()
+        count =0
+        yT = []
+        yTL= []
+        for DIR in staD[sta]:
+            f.write(DIR+'\n')
+            time= np.array(staD[sta][DIR])
+            plt.plot(time,time*0+count,'.')
+            plt.text(timeLim[0]+10,count,'%s %s'%(UTCDateTime(time.min()*86400).strftime('%Y%m%d%H%M%S'),UTCDateTime(time.max()*86400).strftime('%Y%m%d%H%M%S')))
+            yT.append(count)
+            yTL.append(DIR)
+            count-=1
+        ax.set_yticks(yT)
+        ax.set_yticklabels(yTL)
+        plt.xlim(timeLim)
+        plt.title(sta)
+        plt.savefig('%s/%s.jpg'%(plotDir,sta),dpi=300)
+        plt.close()
+'''
 
+def getSacDis(l):
+    staDir,staD,STAD=l
+    STA= staDir.split('/')[-2]
+    print(STA)
+    count=0
+    for yearDir in glob(staDir+'/20??/'):
+        for dayDir in glob(yearDir+'/20??????/'):
+            if count%30 ==0:
+                print(dayDir)
+            count+=1
+            for file in glob(dayDir+'*sac'):
+                head = read(file,headonly=True,format='SAC')[0]
+                sta = head.stats['station']
+                time=int(head.stats['starttime'].timestamp/86400)
+                if sta not in staD:
+                    staD[sta]={}
+                if STA not in STAD:
+                    STAD[STA]={}
+                staInfo = STA    
+                if staInfo not in staD[sta]:
+                    staD[sta][staInfo] = []
+                    print(sta,staInfo)
+                if time not in staD[sta][staInfo]:
+                    staD[sta][staInfo].append(time)
+                if STA not in STAD:
+                    STAD[STA]={}
+                staInfo = sta
+                if staInfo not in STAD[STA]:
+                    STAD[STA][staInfo] = []
+                    print('station',STA,staInfo)
+                if time not in STAD[STA][staInfo]:
+                    STAD[STA][staInfo].append(time)
+def mvSac(sta0,sta1,staName0,bTime,eTime):
+    bTime = UTCDateTime(bTime)
+    eTime = UTCDateTime(eTime)
+    count=0
+    for yearDir in glob('/HOME/jiangyr/YNSCMOVE/'+sta0+'/*/'):
+        for dayDir in glob(yearDir+'/20??????/'):
+            if count%30 ==0:
+                print(dayDir)
+            count+=1
+            for file in glob(dayDir+'*sac'):
+                time = UTCDateTime(os.path.basename(file)[:8])
+                if time<bTime or time>eTime:
+                    continue
+                head = read(file,headonly=True,format='SAC')[0]
+                staName = head.stats['station']
+                #print(staName,staName0)
+                if staName==staName0:
+                    newDir  = '/HOME/jiangyr/YNSCMOVE/'+sta1+yearDir[-6:]+dayDir[-10:]
+                    if not os.path.exists(newDir):
+                        os.makedirs(newDir)
+                    cmd = 'mv %s %s%s'%(file,newDir,os.path.basename(file))
+                    print(cmd)
+                    os.system(cmd)
+                
 
+with Manager() as m:
+    staD = dict()
+    STAD =dict()
+    arg =[]
+    timeLim = [UTCDateTime('20120101').timestamp/86400,UTCDateTime('20201201').timestamp/86400]
+    for staDir in glob('/HOME/jiangyr/YNSCMOVE/Dx*/'):
+        print(staDir)
+        arg.append([staDir,staD,STAD])
+    '''
+    #with Pool(10) as p:
+    #    p.map(getSacDis,arg)
+    '''
+    for ARG in arg:
+        getSacDis(ARG)
+    plotDir = 'YNSC_data/'
+    if not os.path.exists(plotDir):
+        os.makedirs(plotDir)
+    for sta in staD:
+        plt.figure(figsize=[20,4])
+        ax =plt.axes()
+        count =0
+        yT = []
+        yTL= []
+        for DIR in staD[sta]:
+            time= np.array(staD[sta][DIR])
+            plt.plot(time,time*0+count,'.')
+            plt.text(timeLim[0]+10,count,'%s %s'%(UTCDateTime(time.min()*86400).strftime('%Y%m%d%H%M%S'),UTCDateTime(time.max()*86400).strftime('%Y%m%d%H%M%S')))
+            yT.append(count)
+            yTL.append(DIR)
+            count-=1
+        ax.set_yticks(yT)
+        ax.set_yticklabels(yTL)
+        plt.xlim(timeLim)
+        plt.title(sta+'move')
+        plt.savefig('%s/%s_move.jpg'%(plotDir,sta),dpi=300)
+        plt.close()
+    for STA in STAD:
+        plt.figure(figsize=[20,4])
+        ax =plt.axes()
+        count =0
+        yT = []
+        yTL= []
+        for DIR in STAD[STA]:
+            time= np.array(STAD[STA][DIR])
+            plt.plot(time,time*0+count,'.')
+            plt.text(timeLim[0]+10,count,'%s %s'%(UTCDateTime(time.min()*86400).strftime('%Y%m%d%H%M%S'),UTCDateTime(time.max()*86400).strftime('%Y%m%d%H%M%S')))
+            yT.append(count)
+            yTL.append(DIR)
+            count-=1
+        ax.set_yticks(yT)
+        ax.set_yticklabels(yTL)
+        plt.xlim(timeLim)
+        plt.title('station'+STA+'move')
+        plt.savefig('%s/station+%s_move.jpg'%(plotDir,STA),dpi=300)
+        plt.close()
 
-
-
-
+'''
+mvSac('Dxj07','Dxc04','7038','20171113','20181007')
+mvSac('Dxb05','Dxc05','7060','20150315','20150903')#**************
+mvSac('Dxa05','Dxb01','7072','20150314','20171231')
+mvSac('Dxj06','Dxy16','Dxj06','20181010','20190602')
+'''
 
 
 

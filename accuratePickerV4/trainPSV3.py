@@ -68,7 +68,7 @@ def predictLongData(model, x, N=2000, indexL=range(750, 1250)):
     return Y
 
 
-def processX(X, rmean=True, normlize=True, reshape=True,isNoise=False,num=2000):
+def processX(X, rmean=True, normlize=False, reshape=True,isNoise=False,num=2000):
     if reshape:
         X = X.reshape(-1, num, 1, 3)
     if rmean:
@@ -93,15 +93,15 @@ def validStd(tmpY,tmpY0,threshold=100, minY=0.2,num=2000):
     tmpY0=tmpY0[validL]
     maxYIndex=tmpY0.argmax(axis=1)
     if num ==2000:
-        validL=np.where((maxYIndex-250)*(maxYIndex-1750)<0)[0]
+        validL=np.where((maxYIndex-100)*(maxYIndex-1900)<0)[0]
         tmpY=tmpY[validL]
         tmpY0=tmpY0[validL]
 
         #print(validL)
-        di=(tmpY.reshape([-1,2000])[:, 250:1750].argmax(axis=1)-\
-                tmpY0.reshape([-1,2000])[:, 250:1750].argmax(axis=1))
+        di=(tmpY.reshape([-1,2000])[:, 100:1900].argmax(axis=1)-\
+                tmpY0.reshape([-1,2000])[:, 100:1900].argmax(axis=1))
         validL=np.where(np.abs(di)<threshold)[0]
-        pTmp=tmpY.reshape([-1,2000])[:, 250:1750].max(axis=1)[validL]
+        pTmp=tmpY.reshape([-1,2000])[:, 100:1900].max(axis=1)[validL]
         validLNew=np.where(pTmp>minY)[0]
         validL=validL[validLNew]
         if len(di)==0:
@@ -159,7 +159,7 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     modelType='norm',\
     waveFile='data/waveforms_11_13_19.hdf5',\
     catalogFile1='data/metadata_11_13_19.csv'\
-    ,catalogFile2='phaseDir/hinetFileLst'):
+    ,catalogFile2='phaseDir/hinetFileLstNew'):
     rms0=1e5
     resCount=20
     logger=logging.getLogger(__name__)
@@ -184,8 +184,10 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     catalogTrain=[]
     for  catalog in [catalog1,catalog2]:
         catalogValid+=catalog[:validWN]+catalog[-validNN:]
+    for  catalog in [catalog1,catalog2]:
         catalogTest+=catalog[validWN:(testWN+validWN)]\
         +catalog[-(testNN+validNN):-validNN]
+    for  catalog in [catalog1,catalog2]:
         #catalogTrain+=catalog[validWN+testWN:(trainWN+testWN+validWN)]\
         #+catalog[-(trainNN+testNN+validNN):-(testNN+validNN)]
         catalogTrain+=catalog[validWN+testWN:-(testNN+validNN)]
@@ -194,7 +196,7 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
         %(len(catalogValid),len(catalogTest),len(catalogTrain),inN))
 
     xValid,yValid,modeValid=sacTool.getXYFromCatalogP(catalogValid,w,dIndex=dIndex,\
-        channelIndex=channelIndex)
+        channelIndex=channelIndex,phase=phase)
     xValid=processX(xValid,isNoise=False,num=dIndex)
 
     
@@ -202,7 +204,7 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     for i in range(5000):
         catalogIn=random.sample(catalogTrain,inN)
         xTrain,yTrain,modeTrain=sacTool.getXYFromCatalogP(catalogIn,w,dIndex=dIndex,\
-        channelIndex=channelIndex)
+        channelIndex=channelIndex,phase=phase)
         xTrain=processX(xTrain,isNoise=False,num=dIndex)
         ne =3
         if i >3:
@@ -261,7 +263,7 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     minYL=[0.1,0.5,0.9]
     thresholds = [50, 25, 5]
     xTest,yTest,modeTest=sacTool.getXYFromCatalogP(catalogTest,w,dIndex=dIndex,\
-        channelIndex=channelIndex)
+        channelIndex=channelIndex,phase=phase)
     xTest=processX(xTest,isNoise=False,num=dIndex)
     outY = model.predict(xTest)
     for threshold in thresholds:

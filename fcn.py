@@ -443,10 +443,13 @@ class fcnConfig:
         elif mode == 'p' or mode=='s':
             self.inputSize     = [2000,1,3]
             self.outputSize    = [2000,1,1]
-            self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]#high
-            self.featureL      = [8,16,32,64,128,256,512]
+            #self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]#high
+            #self.featureL      = [8,16,32,64,128,256,512]
+            self.featureL      = [6,12,24,48,96,192,384]
             self.strideL       = [(2,1),(2,1),(2,1),(2,1),(5,1),(5,1),(5,1)]
-            self.kernelL       = [(4,1),(4,1),(4,1),(4,1),(10,1),(10,1),(10,1),\
+            #self.kernelL       = [(4,1),(4,1),(4,1),(4,1),(10,1),(10,1),(10,1),\
+            #(8,1),(4,1),(4,1),(4,1)]
+            self.kernelL       = [(4,1),(4,1),(4,1),(4,1),(10,1),(10,1),(5,1),\
             (8,1),(4,1),(4,1),(4,1)]
             self.initializerL  = ['truncated_normal' for i in range(10)]
             self.initializerL  = ['he_normal' for i in range(10)]
@@ -479,9 +482,9 @@ w=np.append(w0,w1)
 w=np.append(w,w2)
 wY=K.variable(w.reshape((1,2000,1,1)))
 
-w11=np.ones(1500)*0
-w01=np.ones(250)*(-0.75)*0
-w21=np.ones(250)*(-0.25)*0
+w11=np.ones(1800)*0
+w01=np.ones(100)*(-0.75)*0
+w21=np.ones(100)*(-0.25)*0
 w1=np.append(w01,w11)
 w1=np.append(w1,w21)
 W1=w1.reshape((1,2000,1,1))
@@ -497,6 +500,13 @@ wY2=K.variable(W2)
 
 def lossFuncNew(y,yout):
 
+    #yW=(K.sign(-y-0.1)+1)*10*(K.sign(yout-0.35)+1)+1
+    #y=(K.sign(y+0.1)+1)*y/2
+    y0=0.13
+    return -K.mean((y*K.log(yout+1e-9)/y0+(1-y)*(K.log(1-yout+1e-9))/(1-y0))*(y*0+1)*(1+K.sign(y)*wY1),axis=[0,1,2,3])
+'''
+def lossFuncNew(y,yout):
+
     yW=(K.sign(-y-0.1)+1)*10*(K.sign(yout-0.35)+1)+1
     y=(K.sign(y+0.1)+1)*y/2
     y0=0.13
@@ -507,7 +517,15 @@ def lossFuncNewS(y,yout):
     yW=(K.sign(-y-0.1)+1)*10*(K.sign(yout-0.35)+1)+1
     y=(K.sign(y+0.1)+1)*y/2
     y0=0.13
-    return -K.mean((y*K.log(yout+1e-9)/y0+(1-y)*(K.log(1-yout+1e-9))/(1-y0))*(y*0+1)*(1+K.sign(y)*wY1)*yW,axis=[0,1,2,3])  
+    return -K.mean((y*K.log(yout+1e-9)/y0+(1-y)*(K.log(1-yout+1e-9))/(1-y0))*(y*0+1)*(1+K.sign(y)*wY1)*yW,axis=[0,1,2,3])
+'''
+def lossFuncNewS(y,yout):
+    #y=y
+    #yW=(K.sign(-y-0.1)+1)*10*(K.sign(yout-0.35)+1)+1
+    #y=(K.sign(y+0.1)+1)*y/2
+    y0=0.13
+    return -K.mean((y*K.log(yout+1e-9)/y0+(1-y)*(K.log(1-yout+1e-9))/(1-y0))*(y*0+1)*(1+K.sign(y)*wY1),axis=[0,1,2,3])
+
 
 def genModel0(modelType='norm',phase='p'):
     return model(config=fcnConfig(mode=phase),channelList=[0,1,2]),2000,1
