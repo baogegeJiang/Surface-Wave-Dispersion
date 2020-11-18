@@ -17,6 +17,14 @@ import time
 from mathFunc import findPos
 import os
 from tensorflow.keras.utils import plot_model
+import tensorflow as tf
+def defProcess():
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.4
+    config.gpu_options.allow_growth = True
+    session =tf.Session(config=config)
+    K.set_session(session)
+
 class LayerNormalization(Layer):
     """Layer Normalization Layer.
     
@@ -445,21 +453,23 @@ class fcnConfig:
             self.outputSize    = [2000,1,1]
             #self.featureL      = [min(2**(i+1)+20,80) for i in range(7)]#high
             #self.featureL      = [8,16,32,64,128,256,512]
-            self.featureL      = [6,12,24,48,96,192,384]
+            #self.featureL      = [6,12,24,48,96,192,384]
+            self.featureL      = [4,8,16,32,64,128,256]
             self.strideL       = [(2,1),(2,1),(2,1),(2,1),(5,1),(5,1),(5,1)]
             #self.kernelL       = [(4,1),(4,1),(4,1),(4,1),(10,1),(10,1),(10,1),\
             #(8,1),(4,1),(4,1),(4,1)]
             self.kernelL       = [(4,1),(4,1),(4,1),(4,1),(10,1),(10,1),(5,1),\
             (8,1),(4,1),(4,1),(4,1)]
-            self.initializerL  = ['truncated_normal' for i in range(10)]
+            #self.initializerL  = ['truncated_normal' for i in range(10)]
             self.initializerL  = ['he_normal' for i in range(10)]
-            self.bias_initializerL = ['random_normal' for i in range(10)]
+            #self.bias_initializerL = ['random_normal' for i in range(10)]
             self.bias_initializerL = ['he_normal' for i in range(10)]
             self.dropOutL     =[]# [0,1,2]#[5,6,7]#[1,3,5,7]#[1,3,5,7]
             self.dropOutRateL = []#[0.2,0.2,0.2]#[0.2,0.2,0.2]
             self.activationL  = ['relu','relu','relu','relu','relu',\
             'relu','relu','relu','relu','relu','relu']
-            self.activationL  = ['relu','relu']+['swish' for i in range(4)]+['relu']
+            #self.activationL  = ['relu','relu']+['swish' for i in range(4)]+['relu']
+            self.activationL  = ['relu','swish' ,'relu','swish','relu','swish' ,'relu']
             self.poolL        = [AveragePooling2D,AveragePooling2D,MaxPooling2D,\
             AveragePooling2D,AveragePooling2D,MaxPooling2D,MaxPooling2D,AveragePooling2D,\
             MaxPooling2D,AveragePooling2D,MaxPooling2D]
@@ -483,8 +493,8 @@ w=np.append(w,w2)
 wY=K.variable(w.reshape((1,2000,1,1)))
 
 w11=np.ones(1800)*0
-w01=np.ones(100)*(-0.75)*0
-w21=np.ones(100)*(-0.25)*0
+w01=np.ones(100)*(-0.8)*0
+w21=np.ones(100)*(-0.3)*0
 w1=np.append(w01,w11)
 w1=np.append(w1,w21)
 W1=w1.reshape((1,2000,1,1))

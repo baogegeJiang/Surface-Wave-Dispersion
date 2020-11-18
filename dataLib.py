@@ -112,7 +112,11 @@ class filePath:
         if staName in self.himaDir:
             staDirL = self.himaDir[staName]
         if nameMode =='YNSC':
-            staDirL = ['/net/CEA/CEA?/net_??/']
+            if net =='YN':
+                staDirL = ['/net/CEA/CEA0/net_yn/']
+            elif net == 'SC':
+                staDirL = ['/net/CEA/CEA1/net_sc/']
+
         if nameMode =='XU':
             staDirL = ['/HOME/jiangyr/YNSCMOVE/']
         return staDirL

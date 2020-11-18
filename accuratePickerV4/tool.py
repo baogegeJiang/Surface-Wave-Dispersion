@@ -6,6 +6,7 @@ from obspy import UTCDateTime, taup
 import obspy
 from multiprocessing import Process, Manager
 from mathFunc import matTime2UTC,rad2deg, getDetec
+from seism import mergeSacByName,adjust, getTrace3ByFileName as getDataByFileName
 import re
 from glob import glob
 from distaz import DistAz
@@ -611,6 +612,43 @@ class Quake(list):
             pWaveform, 'sTimeL': sTimeL, 'sWaveform': sWaveform, \
             'deltaL': deltaL, 'indexL': indexL,'ml':ml})
         return ml
+    def saveSacs(self,staL, quakeIndex, matDir='output/'\
+    ,index0=-500,index1=500,dtype=np.float32):
+        indexL = np.arange(index0, index1)
+        iNum=indexL.size
+        eventDir = matDir+'/'+self.filename.split('.mat')[0]+'/'
+        loc=self.loc
+        if not os.path.exists(eventDir):
+            os.makedirs(eventDir)
+        ml=0
+        sACount=0
+        for i in range(len(self)):
+            record = self[i]
+            staIndex = record.getStaIndex()
+            pTime = record.pTime()
+            sTime = record.sTime()
+            bTime = self.time-20
+            eTime = max(pTime,sTime)+40
+            bTime,eTime=staL[staIndex].data.getTimeLim(bTime,eTime)
+            if bTime>=eTime:
+                continue
+            filenames=staL[staIndex].sta.baseSacName(resDir=eventDir)
+            T3 = staL[staIndex].data.slice(bTime,eTime,nearest_sample=True)
+            T3.adjust(kzTime=self.time,pTime=pTime,sTime=sTime)
+            if T3.bTime>0:
+                T3.write(filenames)
+        return ml
+    def loadSacs(self,staInfos,matDir='output',\
+        isCut=False,index0=-250,index1=250,\
+        f=[-1,-1],filtOrder=2):
+        T3L=[]
+        eventDir = matDir+'/'+self.filename.split('.mat')[0]+'/'
+        for record in self:
+            staIndex = record.getStaIndex()
+            sacsFile = staInfos[staIndex].baseSacName(resDir=eventDir)
+            sacFilesL = [[tmp] for tmp in sacsFile]
+            T3L.append(getDataByFileName(sacFilesL,pTime=record.pTime(),sTime=record.sTime()))
+        return T3L
 
     def calML(self, staInfos, matDir='output/',minSACount=3,waveform=None):
         if not isinstance(waveform,dict):
@@ -1043,7 +1081,7 @@ class quickTaupModel:
             a = arrival(self.interpS(dep, deg)[0])
         return [a]
 
-    def get_orign_times(self, pIndex, sIndex, delta):
+    def get_orign_times(self, pIndex, sIndex, delta=1):
         return pIndex-self.interpO((sIndex-pIndex)*delta)/delta
 
 def getQuakeInfoL(quakeL,loc0=np.array([37.8,140,0])):
@@ -1339,6 +1377,13 @@ def saveQuakeLWaveform(staL, quakeL, matDir='output/',\
         os.mkdir(matDir)
     for i in range(len(quakeL)):
          quakeL[i].ml=quakeL[i].saveWaveform(staL, i,\
+          matDir=matDir,index0=index0,index1=index1,dtype=dtype)
+def saveSacs(staL, quakeL, matDir='output/',\
+    index0=-500,index1=500,dtype=np.float32):
+    if not os.path.exists(matDir):
+        os.mkdir(matDir)
+    for i in range(len(quakeL)):
+         quakeL[i].ml=quakeL[i].saveSacs(staL, i,\
           matDir=matDir,index0=index0,index1=index1,dtype=dtype)
 
 def loadWaveformL(quakeL,matDir='output',isCut=False,index0=-250,\

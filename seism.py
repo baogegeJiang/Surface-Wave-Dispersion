@@ -3,12 +3,14 @@ import numpy as np
 from distaz import DistAz
 from dataLib import filePath
 from obspy import UTCDateTime,read
+from obspy.io import sac
 from distaz import DistAz
 import os 
 import random
 from matplotlib import pyplot as plt
 import time
 from glob import glob
+from numba import jit
 plt.switch_backend('agg')
 fileP = filePath()
 def tolist(s,d='/'):
@@ -364,6 +366,13 @@ class StationList(list):
             plt.plot(sta['lo'],sta['la'],'^k')
         plt.savefig(filePath,dpi=300)
         plt.close()
+    def loc(self):
+        laL=[]
+        loL=[]
+        for sta in self:
+            laL.append(sta['la'])
+            loL.append(sta['lo'])
+        return np.array(laL),np.array(loL)
 
 
         
@@ -870,7 +879,7 @@ class QuakeL(list):
 
 
 def adjust(data,stloc=None,kzTime=None,tmpFile='test.sac',decMul=-1,\
-    eloc=None,chn=None,sta=None,net=None,o=None):
+    eloc=None,chn=None,sta=None,net=None,o=None,pTime=None,sTime=None):
     if decMul>1 :
         decMul = int(decMul)
         if decMul<16:
@@ -893,8 +902,10 @@ def adjust(data,stloc=None,kzTime=None,tmpFile='test.sac',decMul=-1,\
             if np.random.rand()<0.01:
                 print(data)
     if data.stats['_format']!='SAC':
-        data.write(tmpFile,format='SAC')
-        data=obspy.read(tmpFile)[0]
+        tmp=sac.SACTrace.from_obspy_trace(data)
+        data=tmp.to_obspy_trace()
+        #data.write(tmpFile,format='SAC')
+        #data=obspy.read(tmpFile)[0]
         #print(data)
     if stloc!=None:
         data.stats['sac']['stla']=stloc[0]
@@ -928,6 +939,14 @@ def adjust(data,stloc=None,kzTime=None,tmpFile='test.sac',decMul=-1,\
         data.stats['sac']['nzmsec'] = int(kzTime.microsecond/1000)
         data.stats['sac']['b']      = data.stats.starttime.timestamp-kzTime.timestamp
         data.stats['sac']['e']      = data.stats['sac']['b']+(data.data.size-1)*data.stats.delta
+        #tmp=sac.SACTrace.from_obspy_trace(data)
+        #data=tmp.to_obspy_trace()
+    if pTime !=None:
+        if pTime>0:
+            data.stats['sac']['t0']=data.stats['sac']['b']+pTime-data.stats.starttime.timestamp
+    if sTime !=None:
+        if sTime>0:
+            data.stats['sac']['t1']=data.stats['sac']['b']+sTime-data.stats.starttime.timestamp
         #data.write(tmpFile)
         #data=obspy.read(tmpFile)[0]
         #print(data.stats['sac']['b'],data.stats['sac']['e'])
@@ -1077,3 +1096,175 @@ class taup:
         np.savetxt(quickFile,M)
     def __call__(self,dep,dist):
         return self.interpolate(dep,dist)
+
+class Trace3(obspy.Stream):
+    def __init__(self,traces=[],pTime=-1,sTime=-1,delta=-1,bTime=UTCDateTime(1970,1,1),\
+        eTime=UTCDateTime(2099,1,1),compStr = 'ENZ',isData=False):
+        super().__init__(traces)
+        if len(self)==0:
+            self.dis=180*110
+            self.pTime=pTime
+            self.sTime=sTime
+            self.bTime,self.eTime=[-1,-1]
+            self.delta=-1
+            self.data=np.zeros([0,3])
+            return
+        self.compStr =compStr
+        self.dis=180*110
+        self.pTime=pTime
+        self.sTime=sTime
+        self.pTime,self.sTime=self.getPSTime()
+        self.delta=self.Delta()
+        self.bTime,self.eTime=self.getTimeLim(bTime=UTCDateTime(1970,1,1),eTime=UTCDateTime(2099,1,1),delta=delta)
+        if self.bTime>=self.eTime:
+            self.dis=180*110
+            self.pTime=pTime
+            self.sTime=sTime
+            self.bTime,self.eTime=[-1,-1]
+            self.delta=-1
+            self.data=np.zeros([0,3])
+            return
+        if delta>0 and delta!=self.delta:
+            for i in range(len(self)):
+                self[i].interpolate(1/self.delta, method='nearest', starttime=self.bTime,\
+                 npts=int((self.eTime-self.bTime)/self.delta))
+            decMul= round(delta/self.delta)
+            self.decimate(decMul,no_filter=True)
+        if isData:
+            self.data = self.Data()
+    def getPSTime(self):
+        pTime = self.pTime
+        sTime = self.sTime
+        if 'sac' in self[0].stats:
+            if 't0' in self[0].stats['sac'] and pTime<0:
+                pTime=self[0].stats['starttime']+self[0].stats['sac']['t0']-self[0].stats['sac']['b']
+            if 't1' in self[0].stats['sac'] and sTime<0:
+                sTime=self[0].stats['starttime']+self[0].stats['sac']['t1']-self[0].stats['sac']['b']
+            if pTime>0 and sTime>0 and self.dis==180*110:
+                self.dis=(sTime.timestamp-pTime.timestamp)*6/0.7
+        return pTime,sTime
+    def getTimeLim(self,bTime=UTCDateTime(1970,1,1),eTime=UTCDateTime(2099,1,1),delta=-1):
+        bTime = UTCDateTime(bTime)
+        eTime = UTCDateTime(eTime)
+        if delta<0:
+            delta=self.delta
+        for trace in self:
+            bTime = max(trace.stats['starttime'],bTime)
+        n = round((eTime.timestamp-bTime.timestamp)/delta)
+        eTime = bTime+n*delta
+        for trace in self:
+            eTime = min(trace.stats['endtime'],eTime)
+        return bTime,eTime
+    def decimate(self,decMul,no_filter=False):
+        if decMul<16:
+            super().decimate(decMul,no_filter=no_filter)#True
+        else:
+            if decMul%2==0:
+                super().decimate(2,no_filter=no_filter)
+                decMul/=2
+            if decMul%2==0:
+                super().decimate(2,no_filter=no_filter)
+                decMul/=2
+            if decMul%5==0:
+                super().decimate(5,no_filter=no_filter)
+                decMul/=5
+            if decMul%5==0:
+                super().decimate(5,no_filter=no_filter)
+                decMul/=5
+            if decMul>1 :
+                super().decimate(5,no_filter=no_filter)
+            if np.random.rand()<0.01:
+                print(self)
+        self.delta=self.Delta()
+        self.bTime,self.eTime=self.getTimeLim()
+    def Data(self,bTime=UTCDateTime(1970,1,1),eTime=UTCDateTime(2099,1,1)):
+        bTime,eTime = self.getTimeLim(bTime,eTime)
+        if self.bTime<0 or self.eTime<0:
+            return np.zeros([0,3])
+        #print(bTime,eTime)
+        new = self.slice(bTime,eTime,nearest_sample=True)
+        n = round((eTime.timestamp-bTime.timestamp)/self.delta)+1
+        data = np.zeros([n,len(self)],np.float32)
+        for i in range(len(self)):
+            if new[i].data.size >= n:
+                pass
+            else:
+                print('bad Data')
+            tmpN =min(n,new[i].data.size)
+            data[:tmpN,i]=new[i].data[:n]
+        return data
+
+    def copy(self,*args,**kwargs):
+        new=Trace3(super().copy(*args,**kwargs))
+        new.compStr =self.compStr
+        new.dis=self.dis
+        new.pTime=self.pTime
+        new.sTime=self.sTime
+        return new
+    def slice(self,bTime,eTime,nearest_sample=True):
+        bTime = UTCDateTime(bTime)
+        eTime = UTCDateTime(eTime)
+        new=Trace3(super().slice(bTime,eTime,nearest_sample=nearest_sample))
+        new.compStr =self.compStr
+        new.dis=self.dis
+        new.pTime=self.pTime
+        new.sTime=self.sTime
+        return new
+    def write(self,filenames):
+        for i in range(len(self)):
+            self[i].write(filenames[i],format='SAC')
+    def Delta(self):
+        return 1/self[0].stats['sampling_rate']
+    def getDataByTimeLQuick(self,timeL):
+        return self.Data(UTCDateTime(timeL[0]),UTCDateTime(timeL[-1]))
+    def filt(self,f,filtOrder):
+        if f[0]>0:
+            self.filter('bandpass',freqmin=f[0], freqmax=f[1], \
+                        corners=filtOrder, zerophase=True)
+    def resample(self,decMul):
+        if decMul>0:
+            self.decimate(decMul,no_filter=True)
+    def adjust(self,*argv,**kwargs):
+        for tmp in self:
+            adjust(tmp,*argv,**kwargs)
+
+
+def checkSacFile(sacFileNamesL):
+    if len(sacFileNamesL)==0:
+        return False
+    for sacFileNames in sacFileNamesL:
+        count = 0
+        for sacFileName in sacFileNames:
+            if os.path.exists(sacFileName):
+                count=count+1
+        if count==0:
+            return False
+    return True
+
+def getTrace3ByFileName(sacFileNamesL, delta0=0.02, freq=[-1, -1], \
+    filterName='bandpass', corners=2, zerophase=True,maxA=1e5,\
+    bTime=UTCDateTime(1970,1,1),eTime=UTCDateTime(2099,1,1),isPrint=False,mode='norm',
+    pTime=-1,sTime=-1,isData=True):
+    if not checkSacFile(sacFileNamesL):
+        if isPrint:
+            print('not find')
+        return Trace3([])
+    sacs = []
+    #time0=time.time()
+    for sacFileNames in sacFileNamesL:
+        tmp=mergeSacByName(sacFileNames, delta0=delta0,freq=freq,\
+            filterName=filterName,corners=corners,zerophase=zerophase,maxA=maxA)
+        sacs.append(tmp)
+    if None not in sacs:
+        return Trace3(sacs,delta=delta0,bTime=bTime,eTime=eTime,isData=isData,pTime=-1,sTime=-1)
+    else:
+        print('not good')
+        return Trace3([])
+    #print('read',time1-time0,'dec',time2-time1)
+    #return Data(dataL[0], dataL[1], dataL[2], dataL[3], freq,dataL[4],dataL[5],dataL[6])
+
+#用一个文件存相关信息，然后根据文件载入,实验一下，小台阵
+#明天看有无问题
+#降采和对齐的先后顺序可能有影响
+
+        

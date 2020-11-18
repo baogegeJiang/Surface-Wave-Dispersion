@@ -215,6 +215,8 @@ def doMFTAll(staL,waveformL,bTime,n=86400*50,delta=0.02\
         NP=2,quakeRefL=None,maxCC=1,R=[-90,90,-180,180],\
         maxDis=200,isUnique=True,isTorch=True,deviceL=['cuda:0'],\
         minChannel=8,mincc=0.4):
+    for sta in staL:
+        sta.data=sta.Data()
     if not isParallel:
         quakeL=[]
         wM=[None for i in range(maxStaN*2)]

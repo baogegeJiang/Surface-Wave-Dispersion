@@ -20,7 +20,7 @@ import random
 os.environ["MKL_NUM_THREADS"] = "32"
 fileDir='/home/jiangyr/accuratePickerV3/testNew/'
 isBadPlus=1
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = 1
 config.gpu_options.allow_growth = True
@@ -92,16 +92,18 @@ def validStd(tmpY,tmpY0,threshold=100, minY=0.2,num=2000):
     tmpY=tmpY[validL]
     tmpY0=tmpY0[validL]
     maxYIndex=tmpY0.argmax(axis=1)
+    i0=250
+    i1=1750
     if num ==2000:
-        validL=np.where((maxYIndex-100)*(maxYIndex-1900)<0)[0]
+        validL=np.where((maxYIndex-i0)*(maxYIndex-i1)<0)[0]
         tmpY=tmpY[validL]
         tmpY0=tmpY0[validL]
 
         #print(validL)
-        di=(tmpY.reshape([-1,2000])[:, 100:1900].argmax(axis=1)-\
-                tmpY0.reshape([-1,2000])[:, 100:1900].argmax(axis=1))
+        di=(tmpY.reshape([-1,2000])[:, i0:i1].argmax(axis=1)-\
+                tmpY0.reshape([-1,2000])[:, i0:i1].argmax(axis=1))
         validL=np.where(np.abs(di)<threshold)[0]
-        pTmp=tmpY.reshape([-1,2000])[:, 100:1900].max(axis=1)[validL]
+        pTmp=tmpY.reshape([-1,2000])[:, i0:i1].max(axis=1)[validL]
         validLNew=np.where(pTmp>minY)[0]
         validL=validL[validLNew]
         if len(di)==0:
@@ -157,7 +159,7 @@ def validStd(tmpY,tmpY0,threshold=100, minY=0.2,num=2000):
 def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     validNN=5000,testNN=5000,inN=2000,trainWN=10000,trainNN=2000,\
     modelType='norm',\
-    waveFile='data/waveforms_11_13_19.hdf5',\
+    waveFile='/media/jiangyr/MSSD/waveforms_11_13_19.hdf5',\
     catalogFile1='data/metadata_11_13_19.csv'\
     ,catalogFile2='phaseDir/hinetFileLstNew'):
     rms0=1e5
@@ -196,11 +198,11 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
         %(len(catalogValid),len(catalogTest),len(catalogTrain),inN))
 
     xValid,yValid,modeValid=sacTool.getXYFromCatalogP(catalogValid,w,dIndex=dIndex,\
-        channelIndex=channelIndex,phase=phase)
+        channelIndex=channelIndex,phase=phase,oIndex=-2)
     xValid=processX(xValid,isNoise=False,num=dIndex)
 
     
-    
+    increaseCount =10
     for i in range(5000):
         catalogIn=random.sample(catalogTrain,inN)
         xTrain,yTrain,modeTrain=sacTool.getXYFromCatalogP(catalogIn,w,dIndex=dIndex,\
@@ -209,9 +211,10 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
         ne =3
         if i >3:
             ne =1
-        if i >6 and i%5==0:
+        if i >6 and i%int(increaseCount)==0:
             K.set_value(model.optimizer.lr, K.get_value(model.optimizer.lr) \
             * 0.9)#0.95
+            increaseCount*=1.05
         bs = 100
         tmpI=i%xTrain.shape[0]
         showXY(xTrain[tmpI],yTrain[tmpI],np.arange(min(yTrain.shape[-1],2)))
@@ -254,7 +257,7 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
                     logger.info('over fit ,force to stop, set to best model')
                     break
             if rms < rms0 and p > 0.45 :
-                resCount = 40
+                resCount = 50
                 rms0 = rms
                 model0 = (model.get_weights())
                 logger.info('find a better model')
@@ -263,7 +266,7 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
     minYL=[0.1,0.5,0.9]
     thresholds = [50, 25, 5]
     xTest,yTest,modeTest=sacTool.getXYFromCatalogP(catalogTest,w,dIndex=dIndex,\
-        channelIndex=channelIndex,phase=phase)
+        channelIndex=channelIndex,phase=phase,oIndex=-2)
     xTest=processX(xTest,isNoise=False,num=dIndex)
     outY = model.predict(xTest)
     for threshold in thresholds:
@@ -281,8 +284,9 @@ def train(modelFile, resFile, phase='p',validWN=5000,testWN=10000,\
             phase+'y'+'0': yTest})
 
 def showXY(x,y,channelL):
+    A = x.std()*3
     for i in range(3):
-        plt.plot(x[:,:,i]/3+1+i*3,'k',linewidth=0.3)
+        plt.plot(x[:,:,i]/A+1+i*3,'k',linewidth=0.3)
     for i in channelL:
         plt.plot(y[:,:,i]-i-1,linewidth=0.3)
 

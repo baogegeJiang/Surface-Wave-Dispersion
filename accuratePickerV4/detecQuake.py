@@ -1,11 +1,14 @@
 import obspy
 import numpy as np
-from sacTool import getDataByFileName, staTimeMat
+from sacTool import staTimeMat
 import os
 from glob import glob
 import matplotlib.pyplot as plt
 import tool
 import sacTool
+import sys
+sys.path.append("..")
+from seism import getTrace3ByFileName as getDataByFileName
 from tool import Record, Quake, QuakeCC,getYmdHMSj
 from multiprocessing import Process, Manager
 import threading
@@ -13,7 +16,8 @@ import time
 import math
 from mathFunc import getDetec, prob2color
 try:
-    from mapTool import plotQuakeCCDis, plotQuakeDis
+    from mapTool import plotQuakeCCDis, plotQuakeDis,readFault
+    import mpl_toolkits.basemap as basemap
 except:
     print('warning cannot load mapTool')
 else:
@@ -22,6 +26,7 @@ from distaz import DistAz
 from numba import jit
 maxA=2e19
 os.environ["MKL_NUM_THREADS"] = "10"
+faultL = readFault('Chinafault_fromcjw.dat')
 @jit
 def isZeros(a):
     new = a.reshape([-1,10,a.shape[-1]])
@@ -118,13 +123,14 @@ class sta(object):
         self.comp = comp
         self.taupM=taupM
         if loc[0]<R[0] or loc[0]>R[1] or loc[1]<R[2] or loc[1]>R[3]:
-            self.data=sacTool.Data(np.zeros((0,3)))
+            self.data=getDataByFileName([[],[],[]], freq=freq,delta0=delta0,\
+                maxA=maxA,bTime=bTime,eTime=eTime,isData=False)
             print('skip')
         else:
             self.data = getDataByFileName(station.getFileNames(self.day), freq=freq,delta0=delta0,\
-                maxA=maxA,bTime=bTime,eTime=eTime)
+                maxA=maxA,bTime=bTime,eTime=eTime,isData=False)
         #print(len(sta.data.data))
-        print(self.station,self.data.bTime,self.data.eTime,self.data.data.std())
+        print(self.station,self.data.bTime,self.data.eTime)
         self.timeL = list()
         self.vL = list()
         self.mode = mode
@@ -142,7 +148,7 @@ class sta(object):
                 minValueL=[0.6, 0.6]
             minDeltaL=[500, 750]
             for i in range(len(modelL)):
-                tmpL = getDetec(predictLongData(modelL[i], self.data.data,\
+                tmpL = getDetec(predictLongData(modelL[i], self.data.Data(),\
                  indexL=indexLL[i]), minValue=minValueL[i], minDelta =\
                   minDeltaL[i])
                 print('find',len(tmpL[0]))
@@ -150,7 +156,7 @@ class sta(object):
                 self.vL.append(tmpL[1])
             self.pairD = self.getPSPair(maxD=maxD)
             self.isPick = np.zeros(len(self.pairD))
-            self.orignM = self.convertPS2orignM(staTimeM)
+            self.orignM = self.convertPS2orignM(staTimeM,maxD=maxD)
             if isClearData:
                 self.clearData()
 
@@ -181,7 +187,7 @@ class sta(object):
         pairD = list()
         if len(self.timeL) == 0:
             return pairD
-        if self.data.delta==0:
+        if self.data.delta<=0:
             return pairD
         maxN = maxD/self.data.delta
         pN=len(self.timeL[0])
@@ -209,7 +215,7 @@ class sta(object):
                     break
         return pairD
 
-    def convertPS2orignM(self, staTimeM, maxDTime=2):
+    def convertPS2orignM(self, staTimeM, maxDTime=2,maxD=100):
         laN = staTimeM.minTimeD.shape[0]
         loN = staTimeM.minTimeD.shape[1]
         orignM = [[list() for j in range(loN)] for i in range(laN)]
@@ -220,11 +226,15 @@ class sta(object):
         for i in range(len(self.pairD)):
             timeL[i] = self.pairD[i][2]+bSec
         sortL = np.argsort(timeL)
-        for i in sortL:
-            for laIndex in range(laN):
-                for loIndex in range(loN):
-                    if self.pairD[i][3] >= staTimeM.minTimeD[laIndex][loIndex] - maxDTime \
-                    and self.pairD[i][3] <= staTimeM.maxTimeD[laIndex][loIndex] + maxDTime:
+        for laIndex in range(laN):
+            for loIndex in range(loN):
+                minPairTime=staTimeM.minTimeD[laIndex][loIndex] - maxDTime
+                if minPairTime>maxD:
+                    continue
+                maxPairTime=staTimeM.maxTimeD[laIndex][loIndex] + maxDTime
+                for i in sortL:
+                    if self.pairD[i][3] >= minPairTime \
+                    and self.pairD[i][3] <= maxPairTime:
                         pTime = self.pairD[i][0]+bSec
                         sTime = self.pairD[i][1]+bSec
                         timeTmp = [pTime, sTime, timeL[i], i]
@@ -244,7 +254,7 @@ def argMax2D(M):
 
 
 def associateSta(staL, aMat, staTimeML, timeR=30, minSta=3, maxDTime=3, N=1, \
-    isClearData=False, locator=None, maxD=80):
+    isClearData=False, locator=None, maxD=80,taupM=tool.quickTaupModel()):
     timeN = int(timeR)*2
     startTime = obspy.UTCDateTime(2100, 1, 1)
     endTime = obspy.UTCDateTime(1970, 1, 1)
@@ -254,7 +264,7 @@ def associateSta(staL, aMat, staTimeML, timeR=30, minSta=3, maxDTime=3, N=1, \
             staL[staIndex].clearData()
         staL[staIndex].isPick = staL[staIndex].isPick*0
     for staTmp in staL:
-        if len(staTmp.data.data) == 0:
+        if staTmp.data.bTime< 0:
             continue
         startTime = min(startTime, staTmp.data.bTime)
         endTime = max(endTime, staTmp.data.eTime)
@@ -293,7 +303,8 @@ def associateSta(staL, aMat, staTimeML, timeR=30, minSta=3, maxDTime=3, N=1, \
     
 
 def __associateSta(quakeL, staL, aMat, staTimeML, startSec, endSec, \
-    timeR=30, minSta=3, maxDTime=3, locator=None,maxD=80):
+    timeR=30, minSta=3, maxDTime=3, locator=None,maxD=80,\
+    taupM=tool.quickTaupModel()):
     print('start', startSec, endSec)
     laN = aMat.laN
     loN = aMat.loN
@@ -399,17 +410,22 @@ def __associateSta(quakeL, staL, aMat, staTimeML, startSec, endSec, \
                                 validP=np.where((pTimeL/1e5-pTimeMin/1e5)*(pTimeL/1e5-pTimeMax/1e5)<=0)
                                 if len(validP)>0:
                                     if len(validP[0])>0:
-                                        pTime=pTimeL[validP[0]][0]
-                                        pIndex=validP[0][0]
-                                        pProb = staL[staIndex].vL[0][pIndex]
+                                        if pTimeL[validP[0]][0]<=(time+maxD/0.7+maxDTime):
+                                            pTime=pTimeL[validP[0]][0]
+                                            pIndex=validP[0][0]
+                                            pProb = staL[staIndex].vL[0][pIndex]
                                 if pTime < 1:
                                     continue
                                 validS=np.where((sTimeL-sTimeMin)*(sTimeL-sTimeMax) < 0)
                                 if len(validS)>0:
                                     if len(validS[0])>0:
-                                        sTime=sTimeL[validS[0]][0]
-                                        sIndex=validS[0][0]
-                                        sProb = staL[staIndex].vL[1][sIndex]
+                                        if sTimeL[validS[0]][0]<=(time+maxD*1.7/0.7+maxDTime):
+                                            sTime=sTimeL[validS[0]][0]
+                                            sIndex=validS[0][0]
+                                            sProb = staL[staIndex].vL[1][sIndex]
+                                if pTime >1 and sTime>1:
+                                    if np.abs(taupM.get_orign_times(pTime,sTime)-time)>=maxDTime:
+                                        continue
                                 if pTime > 1:
                                     if sTime <1  and staL[staIndex].vL[0][pIndex]<0.3:
                                         continue
@@ -563,7 +579,7 @@ def plotRes(staL, quake, filename=None):
         pD=(pTime-quake.time)%1000
         if pTime ==0:
             pD = ((sTime-quake.time)/1.73)%1000
-        if staL[staIndex].data.data.size<100:
+        if staL[staIndex].data.bTime<0:
             continue
         print(st, et, staL[staIndex].data.delta)
         timeL=np.arange(st, et, staL[staIndex].data.delta)
@@ -615,12 +631,54 @@ def plotResS(staL,quakeL, outDir='output/'):
     for quake in quakeL:
         filename=outDir+'/'+quake.filename[0:-3]+'png'
         #filename=outDir+'/'+str(quake.time)+'.jpg'
-        try:
-            plotRes(staL,quake,filename=filename)
-        except:
-            pass
-        else:
-            pass
+        #try:
+        plotRes(staL,quake,filename=filename)
+        #except:
+        #    pass
+        #else:
+        #    pass
+
+def plotQuakeL(staL,quakeL,laL,loL,outDir='output/'):
+    dayIndex = int(quakeL[-1].time/86400)
+    Ymd = obspy.UTCDateTime(dayIndex*86400).strftime('%Y%m%d')
+    filename = '%s/%s_quake_loc.jpg'%(outDir,Ymd)
+    dayDir=os.path.dirname(filename)
+    if not os.path.exists(dayDir):
+        os.mkdir(dayDir)
+    m = basemap.Basemap(llcrnrlat=laL[0],urcrnrlat=laL[1],llcrnrlon=loL[0],\
+        urcrnrlon=loL[1])
+    staLa= []
+    staLo=[]
+    for sta in staL:
+        if sta.data.bTime>0:
+            staLa.append(sta.loc[0])
+            staLo.append(sta.loc[1])
+    #staLa,staLo = staL.loc()
+    staX,staY=m(np.array(staLo),np.array(staLa))
+    m.plot(staX,staY,'b^',markersize=4,alpha=0.2)
+    eLa= []
+    eLo=[]
+    for quake in quakeL:
+        eLa.append(quake.loc[0])
+        eLo.append(quake.loc[1])
+    eX,eY=m(np.array(eLo),np.array(eLa))
+    #m.etopo()
+    for fault in faultL:
+        if fault.inR(laL+loL):
+            fault.plot(m,markersize=0.3)
+    m.plot(eX,eY,'ro',markersize=2)
+    parallels = np.arange(0.,90,3)
+    m.drawparallels(parallels,labels=[False,True,True,False])
+    meridians = np.arange(10.,360.,3)
+    plt.gca().yaxis.set_ticks_position('right')
+    m.drawmeridians(meridians,labels=[True,False,False,True])
+    plt.title(Ymd)
+    plt.savefig(filename,dpi=300)
+    plt.close()
+
+
+
+
 
 def getStaLByQuake(staInfos, aMat, staTimeML, modelL,quake,\
     getFileName=originFileName,taupM=tool.quickTaupModel(), \

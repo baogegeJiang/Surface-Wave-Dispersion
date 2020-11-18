@@ -15,227 +15,11 @@ import multiprocessing
 from multiprocessing import Process, Manager,Pool
 from glob import glob
 import random
+from obspy.io import sac
+import sys
+sys.path.append("..")
+from seism import mergeSacByName,adjust, getTrace3ByFileName as getDataByFileName
 
-
-def getTimeLim(sacs):
-    n = len(sacs)
-    bTime = UTCDateTime(1970,1,1)
-    eTime = UTCDateTime(2200,12,31)
-    for i in range(n):
-        bTime = max([sacs[i].stats.starttime, bTime])
-        eTime = min([sacs[i].stats.endtime, eTime])
-    return bTime, eTime
-
-
-class data:
-    def getDataByTimeL(self, timeL, kind="slinear", fill_value='extrapolate'):
-        timeL0=self.getTimeL()
-        N=min(len(timeL0), self.data.shape[0])
-        timeL0=timeL0[range(N)]
-        if len(self.data.shape) > 1:
-            return interp.interp1d(timeL0, self.data[range(N), :], kind=kind, \
-                fill_value=fill_value, axis=0)(timeL)
-        else:
-            return interp.interp1d(timeL0, self.data[range(N)], kind=kind, \
-                fill_value=fill_value, axis=0)(timeL)
-        
-
-
-class Data(data):
-    def __init__(self, data, bTime=-999, eTime=-999, delta=0, freq=[-1, -1],\
-            pTime=-999,sTime=-999,dis=110*180):
-        self.data = data
-        self.convert2Float32()
-        self.bTime = bTime
-        self.eTime = eTime
-        self.delta = delta
-        self.freq = freq
-        self.pTime = pTime
-        self.sTime= sTime
-        self.dis  = dis
-    def getTimeL(self):
-        return np.arange(self.bTime.timestamp, self.eTime.timestamp, \
-            self.delta)
-    def getDataByTimeLQuick(self, timeL):
-        if timeL.size<2:
-            return self.getDataByTimeL(timeL)
-        if round(self.delta*100000) != round((timeL[1]-timeL[0])*100000):
-            return self.getDataByTimeL(timeL)
-        bTime = timeL[0]
-        bTime0 = self.bTime.timestamp
-        bIndex = int((bTime-bTime0)/self.delta)
-        eIndex = bIndex + len(timeL)
-        return self.data[bIndex:eIndex,:]
-    def convert2Float32(self):
-        self.data=self.data.astype(np.float32)
-    def filt(self,f=[-1,-1],filtOrder=2):
-        if f[0]>0 and self.delta!=0 and isinstance(self.data,np.ndarray):
-            f0=0.5/self.delta
-            b,a=signal.butter(filtOrder,\
-                [f[0]/f0, f[1]/f0],'bandpass')
-            self.data=signal.filtfilt(b,a,self.data,axis=0)
-    def resample(self,resampleN):
-        if resampleN>0 and self.delta!=0 and isinstance(self.data,np.ndarray):
-            N=int(self.data.shape[0]/resampleN)
-            self.data=signal.resample(self.data[:N*resampleN],N,axis=0)
-            self.delta=self.delta*resampleN
-            self.eTime=self.bTime+(self.data.shape[0]-1)*self.delta
-
-class sac(trace.Trace, data):
-    def __init__(self, object):
-        self.stats=object.stats
-        self.data=object.data
-    def getTimeL(self):
-        bTime = self.stats.starttime
-        eTime = self.stats.endtime
-        timeL = np.arange(bTime.timestamp, eTime.timestamp, self.stats.delta)
-        return timeL
-    def getDataByTimeLQuick(self, timeL):
-        f0 = round(1/(timeL[1]-timeL[0]))
-        bTime = timeL[0]
-        n = len(timeL)
-        #return self.data[:]
-        tmpL=self.split()
-        try:
-            if len(tmpL)>1:
-                ID=tmpL[0].id
-                for tmp in tmpL:
-                    #print(tmp)
-                    tmp.id=ID
-                self=sac(tmpL.merge(fill_value=0)[0])
-            #print(self)
-            self.interpolate(f0, starttime=bTime, npts=n)
-        except:
-            print('wrong interp')
-            return timeL*0
-        else:
-            return self.data[:]
-
-        
-def sac2data(sacs, delta0=0.02,bTime0=None,eTime0=None,oTime=-999):
-    bTime, eTime = getTimeLim(sacs)
-    if eTime0!=None:
-        eTime=min(eTime0,eTime)
-    if bTime0!=None:
-        bTime=max(bTime0,bTime)
-    timeL = np.arange(bTime.timestamp, eTime.timestamp, delta0)
-    data = np.zeros((timeL.shape[0], len(sacs)))
-    pTime=-999
-    sTime=-999
-    dis  = 180*110
-    if 'sac' in sacs[0].stats:
-        if 't0' in sacs[0].stats['sac']:
-            pTime=bTime+sacs[0].stats['sac']['t0']-sacs[0].stats['sac']['b']
-            if oTime>0:
-                dis = (pTime.timestamp-oTime)*6
-        if 't1' in sacs[0].stats['sac']:
-            sTime=bTime+sacs[0].stats['sac']['t1']-sacs[0].stats['sac']['b']
-            if dis == 180*110:
-                if oTime>0:
-                    dis=(sTime.timestamp-oTime)*6/1.6
-
-    for i in range(len(sacs)):
-        data[:, i] = sac(sacs[i]).getDataByTimeLQuick(timeL)
-    return data, bTime, eTime, delta0, pTime, sTime, dis
-
-
-def mergeSacByName(sacFileNames, delta0=0.02, freq=[-1, -1], \
-    filterName='bandpass', corners=2, zerophase=True,maxA=1e5):
-    count = 0
-    sacM = None
-    tmpSacL=None
-    for sacFileName in sacFileNames:
-        try:
-            #time0=time.time()
-            tmpSacs=obspy.read(sacFileName, debug_headers=True,dtype=np.float32)
-            #time1=time.time()
-            if freq[0] > 0:
-                tmpSacs.detrend('demean').detrend('linear').filter(filterName,\
-                        freqmin=freq[0], freqmax=freq[1], \
-                        corners=2, zerophase=zerophase)
-            else:
-                tmpSacs.detrend('demean').detrend('linear')
-            #time2=time.time()
-
-        except:
-            print('wrong read sac')
-            continue
-        else:
-            if tmpSacL==None:
-                tmpSacL=tmpSacs
-            else:
-                tmpSacL+=tmpSacs
-    if tmpSacL!=None and len(tmpSacL)>0:
-        ID=tmpSacL[0].id
-        for tmp in tmpSacL:
-            try:
-                tmp.id=ID
-            except:
-                pass
-            else:
-                pass
-        try:
-            sacM=tmpSacL.merge(method=1,fill_value=0,interpolation_samples=0)[0]
-            std=sacM.std()
-            if std>maxA:
-                print('#####too many noise std : %f#####'%std)
-                sacM=None
-            else:
-                pass
-                #print('#####min noise std : %f#####'%std)
-        except:
-            print('wrong merge')
-            sacM=None
-        else:
-            pass
-            #print(sacM)
-        #time3=time.time()
-        #print('readSac',time1-time0,'filter',time2-time1,'merge',time3-time2)
-    return sacM
-
-def checkSacFile(sacFileNamesL):
-    if len(sacFileNamesL)==0:
-        return False
-    for sacFileNames in sacFileNamesL:
-        count = 0
-        for sacFileName in sacFileNames:
-            if os.path.exists(sacFileName):
-                count=count+1
-        if count==0:
-            return False
-    return True
-
-def getDataByFileName(sacFileNamesL, delta0=0.02, freq=[-1, -1], \
-    filterName='bandpass', corners=2, zerophase=True,maxA=1e5,\
-    bTime=None,eTime=None,isPrint=False,mode='norm'):
-    if not checkSacFile(sacFileNamesL):
-        if isPrint:
-            print('not find')
-        return Data(np.zeros(0), -999, -999, 0, [-1 -1],-999,-999)
-    sacs = stream.Stream()
-    #time0=time.time()
-    for sacFileNames in sacFileNamesL:
-        tmp=mergeSacByName(sacFileNames, delta0=delta0,freq=freq,\
-            filterName=filterName,corners=corners,zerophase=zerophase,maxA=maxA)
-        if tmp == None:
-            print('False')
-            return Data(np.zeros(0), -999, -999, 0, [-1 -1])
-        else:
-            sacs.append(tmp)
-    time1=time.time()
-    oTime=-999
-    if mode == 'hinet':
-        eventDir = os.path.dirname(sacFileNamesL[0][0])
-        eventFile=glob(eventDir+'/D*txt')
-        if len(eventFile)>0:
-            with open(eventFile[0],encoding='latin1') as f:
-                line = f.readline()
-                timeStr = line.split()[-2]+' '+line.split()[-1]
-                oTime   =UTCDateTime(timeStr).timestamp
-    dataL=sac2data(sacs,delta0=delta0,bTime0=bTime,eTime0=eTime,oTime=oTime)
-    time2=time.time()
-    #print('read',time1-time0,'dec',time2-time1)
-    return Data(dataL[0], dataL[1], dataL[2], dataL[3], freq,dataL[4],dataL[5],dataL[6])
 
 class subarea:
     def __init__(self, minLa, minLo, maxLa, maxLo, midLa, midLo):
@@ -322,198 +106,6 @@ class staTimeMat:
             time = min(time, arrival.time)
         return time
 
-
-
-def cutSacByQuake(quake,staInfos,getFilename,comp=['BHE','BHN','BHZ'],\
-    R=[-90,90,-180,180],outDir='SACCUT/',delta=0.01):
-    time=quake.time
-    YmdHMSj0=tool.getYmdHMSj(UTCDateTime(time))
-    YmdHMSj1=tool.getYmdHMSj(UTCDateTime(time+2*3600+10))
-    tmpDir=outDir+str(int(time))+'/'
-    if not os.path.exists(tmpDir):
-        os.mkdir(tmpDir)
-    n=3600*2/delta
-    for staInfo in staInfos:
-        if staInfo['la']>=R[0] and \
-            staInfo['la']<=R[1] and \
-            staInfo['lo']>=R[2] and \
-            staInfo['lo']<=R[3]:
-            print(staInfo['net']+staInfo['sta'])
-            for c in comp:
-                sacName=staInfo['net']+staInfo['sta']+c+'.SAC'
-                fileNames=getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj0)\
-                +getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj1)
-                fileNames=list(set(fileNames))
-                sacM=mergeSacByName(fileNames,delta0=delta)
-                print(sacM)
-                if not sacM == None:
-                    try:
-                        sacM.interpolate(int(1/delta), starttime=time, npts=n)
-                    except:
-                        print('no data')
-                        continue
-                    else:
-                        pass
-                    sacM.write(tmpDir+sacName,format='SAC')
-
-tmpSac1='1test.sac'
-def adjust(data,loc=None,kzTime=None,tmpFile='test.sac',decMul=10,eloc=None,chn=None,sta=None,\
-    net=None,o=None):
-    if decMul>0:
-        data.decimate(decMul)
-    if data.stats['_format']!='SAC':
-        data.write(tmpFile,format='SAC')
-        data=obspy.read(tmpFile)[0]
-        #print(data)
-    if loc!=None:
-        data.stats['sac']['stla']=loc[0]
-        data.stats['sac']['stlo']=loc[1]
-        data.stats['sac']['stel']=loc[2]
-    if eloc!=None:
-        data.stats['sac']['evla']=eloc[0]
-        data.stats['sac']['evlo']=eloc[1]
-        data.stats['sac']['evdp']=eloc[2]
-        dis=DistAz(eloc[0],eloc[1],loc[0],loc[1])
-        dist=dis.degreesToKilometers(dis.getDelta())
-        data.stats['sac']['dist']=dist
-        data.stats['sac']['az']=dis.getAz()
-        data.stats['sac']['baz']=dis.getBaz()
-        data.stats['sac']['gcarc']=dis.getDelta()
-    if chn!=None:
-        data.stats['sac']['kcmpnm']=chn
-        data.stats['channel']=chn
-    if sta!=None and net !=None:
-        data.stats['sac']['kstnm']=sta
-        data.stats['station']=sta
-    if o!=None:
-        data.stats['sac']['o']=o
-    if kzTime!=None:
-        kzTime=UTCDateTime(kzTime)
-        dTime=kzTime.timestamp-(data.stats.starttime.timestamp-data.stats['sac']['b'])
-        data.stats['sac']['nzyear']=int(kzTime.year)
-        data.stats['sac']['nzjday']=int(kzTime.julday)
-        data.stats['sac']['nzhour']=int(kzTime.hour)
-        data.stats['sac']['nzmin']=int(kzTime.minute)
-        data.stats['sac']['nzsec']=int(kzTime.second)
-        data.stats['sac']['nzmsec']=int(kzTime.microsecond/1000)
-        data.stats['sac']['b']-=dTime
-        #data.stats['sac']['b']=(int(data.stats['sac']['b']/data.stats.delta)*data.stats.delta)
-        data.stats['sac']['e']=data.stats['sac']['b']+(data.data.size-1)*data.stats.delta
-        data.write(tmpSac1)
-        data=obspy.read(tmpSac1)[0]
-        print(data.stats['sac'].b)
-    return data
-
-taup=[]#tool.quickTaupModel()
-
-def cutSacByQuakeForCmpAz(quake,staInfos,getFilename,comp=['BHE','BHN','BHZ'],\
-    R=[-90,90,-180,180],outDir='/home/jiangyr/cmpaz/cmpAZ/example/',delta=0.01\
-    ,B=-200,E=1800,isFromO=False,decMul=10,nameMode='cmpAz',maxDT=100000):
-    time0=quake.time
-    tmpDir=outDir
-    if not os.path.exists(tmpDir):
-        os.mkdir(tmpDir)
-    n=int((E-B)/delta)
-    pTimeL=quake.getPTimeL(staInfos)
-    for ii  in range(len(staInfos)):
-        staInfo=staInfos[ii]
-        if nameMode=='ML' and len(quake)>0 and (pTimeL[ii]<=0 or (pTimeL[ii]-quake.time)>maxDT):
-            print('skip')
-            continue 
-
-        if staInfo['la']>=R[0] and \
-            staInfo['la']<=R[1] and \
-            staInfo['lo']>=R[2] and \
-            staInfo['lo']<=R[3]:
-            print(staInfo['net']+staInfo['sta'])
-            if nameMode=='cmpAz':
-                staDir=outDir+'/'+staInfo['net']+'.'+staInfo['sta']+'/'
-                if not os.path.exists(staDir):
-                    os.mkdir(staDir)
-                rawDir=staDir+'/'+'raw/'
-            bTime=time0+B
-            eTime=time0+E
-            YmdHMSj0=tool.getYmdHMSj(UTCDateTime(bTime))
-            YmdHMSj1=tool.getYmdHMSj(UTCDateTime(eTime))
-            Y=tool.getYmdHMSj(UTCDateTime(time0))
-            if nameMode=='ML':
-                rawDir=outDir+'/'+Y['Y']+Y['m']+Y['d']+Y['H']+Y['M']+'%05.2f/'%(time0%60)
-            if not os.path.exists(rawDir):
-                os.mkdir(rawDir)
-            print(rawDir)
-            for c in comp:
-                if nameMode=='cmpAz':
-                    sacName=Y['Y']+Y['m']+Y['d']+'_'+Y['H']+Y['M']+'.'\
-                    +staInfo['sta']+'.'+c
-                if nameMode=='ML':
-                    sacName=staInfo['sta']+'.'+c
-                fileNames=getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj0)\
-                +getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj1)
-                fileNames=list(set(fileNames))
-                sacM=mergeSacByName(fileNames,delta0=delta)
-                print(sacM)
-                if not sacM == None:
-                    try:
-                        sacM.interpolate(int(1/delta), starttime=bTime, npts=n)
-                    except:
-                        print('no data')
-                        continue
-                    else:
-                        pass
-                    if isFromO:
-                        time0=bTime
-                    adjust(sacM,loc=[staInfo['la'],staInfo['lo'],staInfo['dep']],kzTime=time0,\
-                        decMul=decMul,eloc=quake.loc,net=staInfo['net'],sta=staInfo['sta'],\
-                        chn=c)
-                    
-                    os.system('mv %s  %s' % (tmpSac1,rawDir+sacName))
-
-def cutSacByDate(date,staInfos,getFilename,comp=['BHE','BHN','BHZ'],\
-    R=[-90,90,-180,180],outDir='/home/jiangyr/cmpaz/cmpAZ/example/',delta=0.01\
-    ,B=-150,E=700,isFromO=False,decMul=10,nameMode='ML'):
-    time0=date.timestamp
-    n=int((E-B)/delta)
-    tmpDir=outDir
-    if not os.path.exists(tmpDir):
-        os.mkdir(tmpDir)
-    n=int((E-B)/delta)
-    #print(n)
-    for staInfo in staInfos:
-        if staInfo['la']>=R[0] and \
-            staInfo['la']<=R[1] and \
-            staInfo['lo']>=R[2] and \
-            staInfo['lo']<=R[3]:
-            print(staInfo['net']+'.'+staInfo['sta'])
-            Y=tool.getYmdHMSj(UTCDateTime(time0))
-            if nameMode=='ML':
-                rawDir=outDir+'/'+Y['Y']+Y['m']+Y['d']+'/'
-            if nameMode=='event':
-                rawDir=outDir+'/'+Y['Y']+Y['m']+Y['d']+Y['H']+Y['M']+'%05.2f/'%(time0%60)
-            if not os.path.exists(rawDir):
-                os.mkdir(rawDir)
-            for c in comp:
-                if nameMode=='ML' or 'event':
-                    sacName=staInfo['sta']+'.'+c
-                fileNames=getFilename(staInfo['net'],staInfo['sta'],c,Y)
-                fileNames=list(set(fileNames))
-                sacM=mergeSacByName(fileNames,delta0=delta)
-                print('old',sacM)
-                if not sacM == None:
-                    try:
-                        sacM.interpolate(int(1/delta), starttime=time0+B,npts=n)
-                        print('new',sacM)
-                    except:
-                        print('no data')
-                        continue
-                    else:
-                        pass
-                    if isFromO:
-                        time0=time0
-                    adjust(sacM,loc=[staInfo['la'],staInfo['lo'],staInfo['dep']],kzTime=time0,\
-                        decMul=decMul,net=staInfo['net'],sta=staInfo['sta'],\
-                        chn=c,o=0)
-                    print('mv %s  %s' % (tmpSac1,rawDir+sacName))
-                    os.system('mv %s  %s' % (tmpSac1,rawDir+sacName))
 def preCmpAzLog(quakeL,file='/home/jiangyr/cmpaz/cmpAZ/example/eventLst'):
     with open(file,'w+') as f:
         for quake in quakeL:
@@ -593,54 +185,8 @@ def loadCmpAz(file='cmpAzRes/azLst'):
         cmpAz[net+'.'+sta]=[float(az),float(e)]
     return cmpAz
 
-def readStaInfos(fileName,cmpAz=[]):#loadCmpAz()
-    staInfos = list()
-    with open(fileName,'r') as staFile:
-        lines = staFile.readlines()
-    strL='1234567890qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM'
-    count=0
-    for line in lines:
-        infoStr = line.split()
-        countN=int(count/len(strL))
-        countM=int(count%len(strL))
-        nickName=strL[countN]+strL[countM]+strL[countN]+strL[countM]
-        dep=0
-        if len(infoStr)>=8:
-            dep=float(infoStr[7])
-        az=0
-        azE=0
-        netsta=infoStr[0]+'.'+infoStr[1]
-        if netsta in cmpAz:
-            az,azE=cmpAz[netsta]
-        staInfo = {'net':infoStr[0],'sta':infoStr[1],'comp':[infoStr[2]+'E',\
-         infoStr[2]+'N', infoStr[2]+'Z'], 'lo': float(infoStr[3]), \
-         'la': float(infoStr[4]),'dep':dep, 'nickName':nickName,'az':az,\
-         'azE':azE}
-        staInfos.append(staInfo)
-        count=count+1
-    return staInfos
 
-def saveStaInfos(staInfos,fileName):
-    with open(fileName,'w+') as f:
-        for staInfo in staInfos:
-            f.write('%s %s %s %.8f %.8f 0 0 %.8f 0\n'%(staInfo['net'],\
-                staInfo['sta'],staInfo['comp'][0][:-1],staInfo['lo'],\
-                staInfo['la'],staInfo['dep']))
 
-def getDataDis(staInfos,name,startDate=UTCDateTime(2013,10,1),\
-    endDate=UTCDateTime(2016,10,1)):
-    dateNum=int((endDate.timestamp-startDate.timestamp)/86400)
-    staNum=len(staInfos)
-    dateM=np.zeros((staNum,dateNum))
-    for staIndex in range(staNum):
-        staInfo=staInfos[staIndex]
-        for dateIndex in range(dateNum):
-            dateM[staIndex,dateIndex]=np.sign(len(name(staInfo['net'],\
-                staInfo['sta'],'BHE',tool.getYmdHMSj(startDate\
-                    +dateIndex*86400))))
-    plt.pcolor(dateM)
-    plt.savefig('dataDis.png',dpi=500)
-    plt.close()
 
 def staInfos2StaD(staInfos):
     staD={}
@@ -720,9 +266,9 @@ def getXYFromSTEAD(c,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     Y[:,0]=np.exp(-((np.arange(l)-pSample)/dtPSample)**2)
     Y[:,1]=np.exp(-((np.arange(l)-sSample)/dtSSample)**2)
     Y[:,2]=1-Y[:,0]-Y[:,1]
-    if oIndex==None:
+    if oIndex<0:
         i0=int((np.random.rand(1))*(l-dIndex-200)+100)
-        if np.random.rand()<0.6 :
+        if np.random.rand()<0.6 or oIndex==-2:
             if pSample>0:
                 i0 = int(extend/decimateN+np.random.rand()**1.5*(pSample-2/delta-extend/decimateN))
             elif sSample>0:
@@ -771,7 +317,7 @@ def doOne(l):
 
 def getXYFromCatalogP(catalog,w,delta0=0.01,\
     delta=0.02,dtP=0.1,dtS=0.2,f=[0.5,20],\
-    order=2,oIndex=None,dIndex=2000,channelIndex=0,\
+    order=2,oIndex=-1,dIndex=2000,channelIndex=0,\
     maxPS=21,phase='ps'):
     decimateN=1#int(delta/delta0)
     dIndex0=dIndex*decimateN
@@ -792,6 +338,8 @@ def getXYFromCatalogP(catalog,w,delta0=0.01,\
             order,oIndexTmp,dIndex0,maxPS,0,phase,resL])
         with Pool(10) as p:
             p.map(doOne,argHinet)
+        #for arg in argHinet:
+        #    doOne(arg)
         for arg in argSTEAD:
             doOne(arg)
         random.shuffle(resL)
@@ -859,6 +407,7 @@ def getXYFromHinet(filePL,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     sacL=[[fileP+'%s.SAC'%strL[i]] for i in range(3)]
     sac=getDataByFileName(sacL,freq=f,corners=order,delta0=delta,\
         maxA=np.inf,isPrint=True,mode='hinet')
+    #print(sac,sac.pTime,sac.sTime)
     d=int(1.5*(np.random.rand(1))*d0/2+25)*2
     #d=int(np.random.rand*d+50)
     #print(sac.data)
@@ -891,9 +440,9 @@ def getXYFromHinet(filePL,w,delta0=0.01,delta=0.02,dtP=0.1,dtS=0.2,\
     Y[:,0]=np.exp(-((np.arange(l)-pSample)/dtPSample)**2)
     Y[:,1]=np.exp(-((np.arange(l)-sSample)/dtSSample)**2)
     Y[:,2]=1-Y[:,0]-Y[:,1]
-    if oIndex==None:
+    if oIndex<0:
         i0=int((np.random.rand(1))*(l-dIndex-200)+100)
-        if  np.random.rand()<0.6:
+        if  np.random.rand()<0.6 or oIndex==-2:
             if pSample>0:
                 i0=extend+int(np.random.rand()**1.5*(sac.pTime-2-sac.bTime)/sac.delta)
             elif sSample>0:
@@ -922,3 +471,419 @@ def getXYLFromHinet(filePs,dIndex=2000,order=2,delta=0.02,\
             Y[count]=tmpY
             count+=1
     return X[:count],Y[:count,:,:,channelIndex]
+'''
+class data:
+    def getDataByTimeL(self, timeL, kind="slinear", fill_value='extrapolate'):
+        timeL0=self.getTimeL()
+        N=min(len(timeL0), self.data.shape[0])
+        timeL0=timeL0[range(N)]
+        if len(self.data.shape) > 1:
+            return interp.interp1d(timeL0, self.data[range(N), :], kind=kind, \
+                fill_value=fill_value, axis=0)(timeL)
+        else:
+            return interp.interp1d(timeL0, self.data[range(N)], kind=kind, \
+                fill_value=fill_value, axis=0)(timeL)
+        
+
+
+class Data(data):
+    def __init__(self, data, bTime=-999, eTime=-999, delta=0, freq=[-1, -1],\
+            pTime=-999,sTime=-999,dis=110*180):
+        self.data = data
+        self.convert2Float32()
+        self.bTime = bTime
+        self.eTime = eTime
+        self.delta = delta
+        self.freq = freq
+        self.pTime = pTime
+        self.sTime= sTime
+        self.dis  = dis
+    def getTimeL(self):
+        return np.arange(self.bTime.timestamp, self.eTime.timestamp, \
+            self.delta)
+    def getDataByTimeLQuick(self, timeL):
+        if timeL.size<2:
+            return self.getDataByTimeL(timeL)
+        if round(self.delta*100000) != round((timeL[1]-timeL[0])*100000):
+            return self.getDataByTimeL(timeL)
+        bTime = timeL[0]
+        bTime0 = self.bTime.timestamp
+        bIndex = int((bTime-bTime0)/self.delta)
+        eIndex = bIndex + len(timeL)
+        return self.data[bIndex:eIndex,:]
+    def convert2Float32(self):
+        self.data=self.data.astype(np.float32)
+    def filt(self,f=[-1,-1],filtOrder=2):
+        if f[0]>0 and self.delta!=0 and isinstance(self.data,np.ndarray):
+            f0=0.5/self.delta
+            b,a=signal.butter(filtOrder,\
+                [f[0]/f0, f[1]/f0],'bandpass')
+            self.data=signal.filtfilt(b,a,self.data,axis=0)
+    def resample(self,resampleN):
+        if resampleN>0 and self.delta!=0 and isinstance(self.data,np.ndarray):
+            N=int(self.data.shape[0]/resampleN)
+            self.data=signal.resample(self.data[:N*resampleN],N,axis=0)
+            self.delta=self.delta*resampleN
+            self.eTime=self.bTime+(self.data.shape[0]-1)*self.delta
+
+class sac(trace.Trace, data):
+    def __init__(self, object):
+        self.stats=object.stats
+        self.data=object.data
+    def getTimeL(self):
+        bTime = self.stats.starttime
+        eTime = self.stats.endtime
+        timeL = np.arange(bTime.timestamp, eTime.timestamp, self.stats.delta)
+        return timeL
+    def getDataByTimeLQuick(self, timeL):
+        f = round(1/(timeL[1]-timeL[0]))
+        tmpL=self.split()
+        try:
+            if len(tmpL)>1:
+                ID=tmpL[0].id
+                for tmp in tmpL:
+                    #print(tmp)
+                    tmp.id=ID
+                self=tmpL.merge(fill_value=0)[0]
+            #print(self)
+            f0 = self.stats['sampling_rate']
+            decMul = round(f0/f)
+            self=self.slice(UTCDateTime(timeL[0]) ,UTCDateTime(timeL[-1]),\
+             nearest_sample=True)
+            print(UTCDateTime(timeL[0]) ,UTCDateTime(timeL[-1]),len(timeL),self.stats['sampling_rate'])
+            if decMul>1:
+                if decMul in [5,2]:
+                    self.decimate(decMul,no_filter=True)
+            print(self.stats['starttime'],self.stats['endtime'],self.data.size,self.stats['sampling_rate'])
+        except:
+            print('wrong interp')
+            return timeL*0
+        else:
+            if self.data.size >= timeL.size:
+                return self.data[:timeL.size]
+            else:
+                print('not good decMul')
+                return timeL*0
+
+        
+def sac2data(sacs, delta0=0.02,bTime0=None,eTime0=None,oTime=-999):
+    bTime, eTime = getTimeLim(sacs)
+    if eTime0!=None:
+        eTime=min(eTime0,eTime)
+    if bTime0!=None:
+        bTime=max(bTime0,bTime)
+    timeL = np.arange(bTime.timestamp, eTime.timestamp, delta0)
+    data = np.zeros((timeL.shape[0], len(sacs)))
+    pTime=-999
+    sTime=-999
+    dis  = 180*110
+    if 'sac' in sacs[0].stats:
+        if 't0' in sacs[0].stats['sac']:
+            pTime=bTime+sacs[0].stats['sac']['t0']-sacs[0].stats['sac']['b']
+            if oTime>0:
+                dis = (pTime.timestamp-oTime)*6
+        if 't1' in sacs[0].stats['sac']:
+            sTime=bTime+sacs[0].stats['sac']['t1']-sacs[0].stats['sac']['b']
+            if dis == 180*110:
+                if oTime>0:
+                    dis=(sTime.timestamp-oTime)*6/1.6
+
+    for i in range(len(sacs)):
+        data[:, i] = sac(sacs[i]).getDataByTimeLQuick(timeL)
+    return data, bTime, eTime, delta0, pTime, sTime, dis
+
+
+def mergeSacByName(sacFileNames, delta0=0.02, freq=[-1, -1], \
+    filterName='bandpass', corners=2, zerophase=True,maxA=1e5):
+    count = 0
+    sacM = None
+    tmpSacL=None
+    for sacFileName in sacFileNames:
+        try:
+            #time0=time.time()
+            tmpSacs=obspy.read(sacFileName, debug_headers=True,dtype=np.float32)
+            #time1=time.time()
+            if freq[0] > 0:
+                tmpSacs.detrend('demean').detrend('linear').filter(filterName,\
+                        freqmin=freq[0], freqmax=freq[1], \
+                        corners=2, zerophase=zerophase)
+            else:
+                tmpSacs.detrend('demean').detrend('linear')
+            #time2=time.time()
+
+        except:
+            print('wrong read sac')
+            continue
+        else:
+            if tmpSacL==None:
+                tmpSacL=tmpSacs
+            else:
+                tmpSacL+=tmpSacs
+    if tmpSacL!=None and len(tmpSacL)>0:
+        ID=tmpSacL[0].id
+        for tmp in tmpSacL:
+            try:
+                tmp.id=ID
+            except:
+                pass
+            else:
+                pass
+        try:
+            sacM=tmpSacL.merge(method=1,fill_value=0,interpolation_samples=0)[0]
+
+            
+            #std=sacM.std()
+            #if std>maxA:
+            #    print('#####too many noise std : %f#####'%std)
+            #    sacM=None
+            #else:
+            #    pass
+            #    #print('#####min noise std : %f#####'%std)
+        except:
+            print('wrong merge')
+            sacM=None
+        else:
+            pass
+            #print(sacM)
+        #time3=time.time()
+        #print('readSac',time1-time0,'filter',time2-time1,'merge',time3-time2)
+    return sacM
+
+def checkSacFile(sacFileNamesL):
+    if len(sacFileNamesL)==0:
+        return False
+    for sacFileNames in sacFileNamesL:
+        count = 0
+        for sacFileName in sacFileNames:
+            if os.path.exists(sacFileName):
+                count=count+1
+        if count==0:
+            return False
+    return True
+
+def getDataByFileName_bak(sacFileNamesL, delta0=0.02, freq=[-1, -1], \
+    filterName='bandpass', corners=2, zerophase=True,maxA=1e5,\
+    bTime=None,eTime=None,isPrint=False,mode='norm'):
+    if not checkSacFile(sacFileNamesL):
+        if isPrint:
+            print('not find')
+        return Data(np.zeros(0), -999, -999, 0, [-1 -1],-999,-999)
+    sacs = stream.Stream()
+    #time0=time.time()
+    for sacFileNames in sacFileNamesL:
+        tmp=mergeSacByName(sacFileNames, delta0=delta0,freq=freq,\
+            filterName=filterName,corners=corners,zerophase=zerophase,maxA=maxA)
+        if tmp == None:
+            print('False')
+            return Data(np.zeros(0), -999, -999, 0, [-1 -1])
+        else:
+            sacs.append(tmp)
+    time1=time.time()
+    oTime=-999
+    if mode == 'hinet':
+        eventDir = os.path.dirname(sacFileNamesL[0][0])
+        eventFile=glob(eventDir+'/D*txt')
+        if len(eventFile)>0:
+            with open(eventFile[0],encoding='latin1') as f:
+                line = f.readline()
+                timeStr = line.split()[-2]+' '+line.split()[-1]
+                oTime   =UTCDateTime(timeStr).timestamp
+    dataL=sac2data(sacs,delta0=delta0,bTime0=bTime,eTime0=eTime,oTime=oTime)
+    time2=time.time()
+    #print('read',time1-time0,'dec',time2-time1)
+    return Data(dataL[0], dataL[1], dataL[2], dataL[3], freq,dataL[4],dataL[5],dataL[6])
+def adjust(data,loc=None,kzTime=None,tmpFile='test.sac',decMul=10,eloc=None,chn=None,sta=None,\
+    net=None,o=None):
+    if decMul>0:
+        data.decimate(decMul)
+    if data.stats['_format']!='SAC':
+        tmp=sac.SACTrace.from_obspy_trace(data)
+        data=tmp.to_obspy_trace()
+        #data.write(tmpFile,format='SAC')
+        #print(data)
+    if loc!=None:
+        data.stats['sac']['stla']=loc[0]
+        data.stats['sac']['stlo']=loc[1]
+        data.stats['sac']['stel']=loc[2]
+    if eloc!=None:
+        data.stats['sac']['evla']=eloc[0]
+        data.stats['sac']['evlo']=eloc[1]
+        data.stats['sac']['evdp']=eloc[2]
+        dis=DistAz(eloc[0],eloc[1],loc[0],loc[1])
+        dist=dis.degreesToKilometers(dis.getDelta())
+        data.stats['sac']['dist']=dist
+        data.stats['sac']['az']=dis.getAz()
+        data.stats['sac']['baz']=dis.getBaz()
+        data.stats['sac']['gcarc']=dis.getDelta()
+    if chn!=None:
+        data.stats['sac']['kcmpnm']=chn
+        data.stats['channel']=chn
+    if sta!=None and net !=None:
+        data.stats['sac']['kstnm']=sta
+        data.stats['station']=sta
+    if o!=None:
+        data.stats['sac']['o']=o
+    if kzTime!=None:
+        kzTime=UTCDateTime(kzTime)
+        dTime=kzTime.timestamp-(data.stats.starttime.timestamp-data.stats['sac']['b'])
+        data.stats['sac']['nzyear']=int(kzTime.year)
+        data.stats['sac']['nzjday']=int(kzTime.julday)
+        data.stats['sac']['nzhour']=int(kzTime.hour)
+        data.stats['sac']['nzmin']=int(kzTime.minute)
+        data.stats['sac']['nzsec']=int(kzTime.second)
+        data.stats['sac']['nzmsec']=int(kzTime.microsecond/1000)
+        data.stats['sac']['b']-=dTime
+        #data.stats['sac']['b']=(int(data.stats['sac']['b']/data.stats.delta)*data.stats.delta)
+        data.stats['sac']['e']=data.stats['sac']['b']+(data.data.size-1)*data.stats.delta
+        data.write(tmpSac1)
+        data=obspy.read(tmpSac1)[0]
+        print(data.stats['sac'].b)
+    return data
+def cutSacByQuake(quake,staInfos,getFilename,comp=['BHE','BHN','BHZ'],\
+    R=[-90,90,-180,180],outDir='SACCUT/',delta=0.01):
+    time=quake.time
+    YmdHMSj0=tool.getYmdHMSj(UTCDateTime(time))
+    YmdHMSj1=tool.getYmdHMSj(UTCDateTime(time+2*3600+10))
+    tmpDir=outDir+str(int(time))+'/'
+    if not os.path.exists(tmpDir):
+        os.mkdir(tmpDir)
+    n=3600*2/delta
+    for staInfo in staInfos:
+        if staInfo['la']>=R[0] and \
+            staInfo['la']<=R[1] and \
+            staInfo['lo']>=R[2] and \
+            staInfo['lo']<=R[3]:
+            print(staInfo['net']+staInfo['sta'])
+            for c in comp:
+                sacName=staInfo['net']+staInfo['sta']+c+'.SAC'
+                fileNames=getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj0)\
+                +getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj1)
+                fileNames=list(set(fileNames))
+                sacM=mergeSacByName(fileNames,delta0=delta)
+                print(sacM)
+                if not sacM == None:
+                    try:
+                        sacM.interpolate(int(1/delta), starttime=time, npts=n)
+                    except:
+                        print('no data')
+                        continue
+                    else:
+                        pass
+                    sacM.write(tmpDir+sacName,format='SAC')
+
+def getTimeLim(sacs):
+    n = len(sacs)
+    bTime = UTCDateTime(1970,1,1)
+    eTime = UTCDateTime(2200,12,31)
+    for i in range(n):
+        bTime = max([sacs[i].stats.starttime, bTime])
+        eTime = min([sacs[i].stats.endtime, eTime])
+    return bTime, eTime
+def cutSacByQuakeForCmpAz(quake,staInfos,getFilename,comp=['BHE','BHN','BHZ'],\
+    R=[-90,90,-180,180],outDir='/home/jiangyr/cmpaz/cmpAZ/example/',delta=0.01\
+    ,B=-200,E=1800,isFromO=False,decMul=10,nameMode='cmpAz',maxDT=100000):
+    time0=quake.time
+    tmpDir=outDir
+    if not os.path.exists(tmpDir):
+        os.mkdir(tmpDir)
+    n=int((E-B)/delta)
+    pTimeL=quake.getPTimeL(staInfos)
+    for ii  in range(len(staInfos)):
+        staInfo=staInfos[ii]
+        if nameMode=='ML' and len(quake)>0 and (pTimeL[ii]<=0 or (pTimeL[ii]-quake.time)>maxDT):
+            print('skip')
+            continue 
+
+        if staInfo['la']>=R[0] and \
+            staInfo['la']<=R[1] and \
+            staInfo['lo']>=R[2] and \
+            staInfo['lo']<=R[3]:
+            print(staInfo['net']+staInfo['sta'])
+            if nameMode=='cmpAz':
+                staDir=outDir+'/'+staInfo['net']+'.'+staInfo['sta']+'/'
+                if not os.path.exists(staDir):
+                    os.mkdir(staDir)
+                rawDir=staDir+'/'+'raw/'
+            bTime=time0+B
+            eTime=time0+E
+            YmdHMSj0=tool.getYmdHMSj(UTCDateTime(bTime))
+            YmdHMSj1=tool.getYmdHMSj(UTCDateTime(eTime))
+            Y=tool.getYmdHMSj(UTCDateTime(time0))
+            if nameMode=='ML':
+                rawDir=outDir+'/'+Y['Y']+Y['m']+Y['d']+Y['H']+Y['M']+'%05.2f/'%(time0%60)
+            if not os.path.exists(rawDir):
+                os.mkdir(rawDir)
+            print(rawDir)
+            for c in comp:
+                if nameMode=='cmpAz':
+                    sacName=Y['Y']+Y['m']+Y['d']+'_'+Y['H']+Y['M']+'.'\
+                    +staInfo['sta']+'.'+c
+                if nameMode=='ML':
+                    sacName=staInfo['sta']+'.'+c
+                fileNames=getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj0)\
+                +getFilename(staInfo['net'],staInfo['sta'],c,YmdHMSj1)
+                fileNames=list(set(fileNames))
+                sacM=mergeSacByName(fileNames,delta0=delta)
+                print(sacM)
+                if not sacM == None:
+                    try:
+                        sacM.interpolate(int(1/delta), starttime=bTime, npts=n)
+                    except:
+                        print('no data')
+                        continue
+                    else:
+                        pass
+                    if isFromO:
+                        time0=bTime
+                    adjust(sacM,loc=[staInfo['la'],staInfo['lo'],staInfo['dep']],kzTime=time0,\
+                        decMul=decMul,eloc=quake.loc,net=staInfo['net'],sta=staInfo['sta'],\
+                        chn=c)
+                    
+                    os.system('mv %s  %s' % (tmpSac1,rawDir+sacName))
+def cutSacByDate(date,staInfos,getFilename,comp=['BHE','BHN','BHZ'],\
+    R=[-90,90,-180,180],outDir='/home/jiangyr/cmpaz/cmpAZ/example/',delta=0.01\
+    ,B=-150,E=700,isFromO=False,decMul=10,nameMode='ML'):
+    time0=date.timestamp
+    n=int((E-B)/delta)
+    tmpDir=outDir
+    if not os.path.exists(tmpDir):
+        os.mkdir(tmpDir)
+    n=int((E-B)/delta)
+    #print(n)
+    for staInfo in staInfos:
+        if staInfo['la']>=R[0] and \
+            staInfo['la']<=R[1] and \
+            staInfo['lo']>=R[2] and \
+            staInfo['lo']<=R[3]:
+            print(staInfo['net']+'.'+staInfo['sta'])
+            Y=tool.getYmdHMSj(UTCDateTime(time0))
+            if nameMode=='ML':
+                rawDir=outDir+'/'+Y['Y']+Y['m']+Y['d']+'/'
+            if nameMode=='event':
+                rawDir=outDir+'/'+Y['Y']+Y['m']+Y['d']+Y['H']+Y['M']+'%05.2f/'%(time0%60)
+            if not os.path.exists(rawDir):
+                os.mkdir(rawDir)
+            for c in comp:
+                if nameMode=='ML' or 'event':
+                    sacName=staInfo['sta']+'.'+c
+                fileNames=getFilename(staInfo['net'],staInfo['sta'],c,Y)
+                fileNames=list(set(fileNames))
+                sacM=mergeSacByName(fileNames,delta0=delta)
+                print('old',sacM)
+                if not sacM == None:
+                    try:
+                        sacM.interpolate(int(1/delta), starttime=time0+B,npts=n)
+                        print('new',sacM)
+                    except:
+                        print('no data')
+                        continue
+                    else:
+                        pass
+                    if isFromO:
+                        time0=time0
+                    adjust(sacM,loc=[staInfo['la'],staInfo['lo'],staInfo['dep']],kzTime=time0,\
+                        decMul=decMul,net=staInfo['net'],sta=staInfo['sta'],\
+                        chn=c,o=0)
+                    print('mv %s  %s' % (tmpSac1,rawDir+sacName))
+                    os.system('mv %s  %s' % (tmpSac1,rawDir+sacName))
+    '''
